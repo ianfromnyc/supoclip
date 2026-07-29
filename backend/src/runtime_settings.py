@@ -39,12 +39,12 @@ PROCESS_ENV_SETTING_KEYS = frozenset(
 
 # Non-secret settings (plain configuration values, not credentials) are stored
 # as marked plaintext so admins can manage them without configuring
-# APP_SETTINGS_ENCRYPTION_KEY. Everything else stays AES-GCM encrypted.
+# APP_SETTINGS_ENCRYPTION_KEY. Everything else stays AES-GCM encrypted —
+# including OLLAMA_BASE_URL, since hosted endpoint URLs can embed credentials.
 NON_SECRET_SETTING_KEYS = frozenset(
     {
         "TRANSCRIPTION_PROVIDER",
         "LLM",
-        "OLLAMA_BASE_URL",
     }
 )
 
@@ -116,13 +116,20 @@ def encode_setting_value(setting_key: str, value: str) -> str:
     return encrypt_setting_value(value)
 
 
-def decode_setting_value(stored_value: str) -> str:
+def decode_setting_value(setting_key: str, stored_value: str) -> str:
     """Decode a stored setting value, plaintext-marked or encrypted.
 
+    The plaintext marker is only honored for settings currently in the
+    non-secret tier — a plain: row for a secret setting is rejected so the
+    AES-GCM authenticity guarantee is not bypassable via a raw DB write.
     Encrypted rows always decrypt regardless of the setting's current tier, so
     a setting flipped from encrypted to plaintext keeps working until rewritten.
     """
     if stored_value.startswith(_PLAINTEXT_PREFIX):
+        if setting_key not in NON_SECRET_SETTING_KEYS:
+            raise ValueError(
+                f"Plaintext storage is not allowed for secret setting {setting_key}"
+            )
         return stored_value[len(_PLAINTEXT_PREFIX):]
     return decrypt_setting_value(stored_value)
 
@@ -149,7 +156,7 @@ async def load_runtime_settings_cache(db: AsyncSession) -> None:
         if not encrypted_value:
             continue
         try:
-            value = decode_setting_value(encrypted_value).strip()
+            value = decode_setting_value(setting_key, encrypted_value).strip()
         except Exception as exc:
             logger.warning("Unable to decode runtime setting %s: %s", setting_key, exc)
             continue

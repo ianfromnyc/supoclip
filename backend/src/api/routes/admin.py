@@ -62,7 +62,9 @@ SETTING_METADATA = {
     "OLLAMA_BASE_URL": {
         "label": "Ollama base URL",
         "description": "Optional URL for local or hosted Ollama-compatible endpoints.",
-        "input_type": "text",
+        # Masked (and stored encrypted) because hosted endpoint URLs can embed
+        # basic-auth credentials.
+        "input_type": "password",
     },
     "OLLAMA_API_KEY": {
         "label": "Ollama API key",
