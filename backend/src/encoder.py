@@ -18,6 +18,9 @@ from .config import get_config
 VAAPI_UPLOAD_FILTER = "format=nv12,hwupload"
 # Label used when we splice the upload stage onto a -filter_complex graph.
 _HW_LABEL = "[vaapi_hw]"
+# Inputs that get hardware decode. Only real video files: concat list files,
+# lavfi sources, images and audio must keep software demux/decode.
+_VIDEO_INPUT_EXTENSIONS = (".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi")
 
 
 def vaapi_enabled() -> bool:
@@ -26,6 +29,40 @@ def vaapi_enabled() -> bool:
 
 def get_vaapi_device() -> str:
     return get_config().vaapi_device
+
+
+def _insert_hwaccel_decode(args: List[str], device: str) -> List[str]:
+    """Add VAAPI hardware decode in front of each video-file input.
+
+    Deliberately decode-to-system-memory (no `-hwaccel_output_format vaapi`):
+    the filter chains here (libass subtitle burn, pad, scale, concat, xfade)
+    are CPU-only, so frames must land in system memory anyway. Plain -hwaccel
+    gives GPU decode with an automatic download, the filters run unchanged and
+    the trailing format=nv12,hwupload feeds the GPU encoder — the download/
+    upload sandwich is the only workable shape for these graphs. ffmpeg's
+    hwaccel is best-effort per stream, so unsupported codecs simply fall back
+    to software decode.
+    """
+    result: List[str] = []
+    saw_demuxer = False  # a -f before the input means concat/lavfi/etc.
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg == "-f":
+            saw_demuxer = True
+        if arg == "-i" and index + 1 < len(args):
+            input_path = args[index + 1]
+            if not saw_demuxer and input_path.lower().endswith(
+                _VIDEO_INPUT_EXTENSIONS
+            ):
+                result += ["-hwaccel", "vaapi", "-hwaccel_device", device]
+            saw_demuxer = False  # per-input options end at the input file
+            result += [arg, input_path]
+            index += 2
+            continue
+        result.append(arg)
+        index += 1
+    return result
 
 
 def adapt_command_for_vaapi(command: List[str]) -> Optional[List[str]]:
@@ -104,7 +141,11 @@ def adapt_command_for_vaapi(command: List[str]) -> Optional[List[str]]:
         insert_at = result.index("-c:v")
         result[insert_at:insert_at] = ["-vf", VAAPI_UPLOAD_FILTER]
 
+    # Hardware-decode each video-file input on the same device.
+    device = get_vaapi_device()
+    result = _insert_hwaccel_decode(result, device)
+
     # Global option creating the hardware device; goes right after `ffmpeg -y`.
     device_at = 2 if len(result) > 1 and result[1] == "-y" else 1
-    result[device_at:device_at] = ["-vaapi_device", get_vaapi_device()]
+    result[device_at:device_at] = ["-vaapi_device", device]
     return result
