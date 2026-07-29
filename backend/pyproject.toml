@@ -74,7 +74,9 @@ addopts = """
 [tool.coverage.run]
 omit = [
     # Legacy monolithic entry point, superseded by main_refactored.py.
-    "src/main.py",
+    # Glob patterns so the omit still matches when pytest runs from another CWD
+    # (coverage.py absolutizes plain relative paths against the invocation CWD).
+    "*/src/main.py",
     # Thin process launcher for the ARQ worker (arq src.workers.tasks.WorkerSettings).
-    "src/worker_main.py",
+    "*/src/worker_main.py",
 ]
