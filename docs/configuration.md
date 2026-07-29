@@ -83,6 +83,7 @@ These settings affect clip generation speed, throughput, and defaults.
 | `FAST_MODE_MAX_CLIPS` | `4` | Clip cap used by fast mode |
 | `FAST_MODE_TRANSCRIPT_MODEL` | `universal` | AssemblyAI speech model used by fast mode. The code default is `universal` (`backend/src/config.py`); `backend/.env.example` overrides it to `nano` |
 | `QUEUED_TASK_TIMEOUT_SECONDS` | `180` | Marks stale queued tasks as failed instead of leaving them stuck forever |
+| `WORKER_MAX_JOBS` | `4` | How many videos the ARQ worker processes concurrently. Lower it when local GPU transcription/encoding shares one card with the jobs |
 | `MAX_VIDEO_DURATION` | `5400` | Maximum accepted input video length in seconds |
 | `MAX_CLIPS` | `10` | Upper bound used by backend logic |
 | `CLIP_DURATION` | `30` | Default clip duration target in seconds |

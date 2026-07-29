@@ -140,6 +140,7 @@ class WorkerSettings:
     max_tries = 3  # Retry failed jobs up to 3 times
     job_timeout = 10800  # 3 hour timeout for video processing
 
-    # Worker pool settings
-    max_jobs = 4  # Process up to 4 jobs simultaneously
+    # Worker pool settings: WORKER_MAX_JOBS env var, default 4. Lower it when
+    # local GPU transcription/encoding shares the card with concurrent jobs.
+    max_jobs = config.worker_max_jobs
     cron_jobs = []
