@@ -174,9 +174,11 @@ class Config:
             "PEXELS_API_KEY": self.pexels_api_key,
         }
 
-    @staticmethod
-    def _get_positive_int_env(name: str, default: int) -> int:
-        value = os.getenv(name)
+    @classmethod
+    def _get_positive_int_env(cls, name: str, default: int) -> int:
+        # Blank values (e.g. an empty `NAME=` line in .env) mean "unset";
+        # warning on them would spam logs since Config() is built per call.
+        value = cls._get_optional_env(name)
         if value is None:
             return default
         try:
