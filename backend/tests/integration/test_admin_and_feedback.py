@@ -1,3 +1,5 @@
+import importlib.util
+
 import pytest
 from sqlalchemy import text
 
@@ -44,11 +46,15 @@ async def test_runtime_settings_reject_unknown_transcription_provider(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    importlib.util.find_spec("whisperx") is not None,
+    reason="whisperx extra is installed, so selecting it is valid",
+)
 async def test_runtime_settings_reject_whisperx_when_extra_not_installed(
     client, db_session, auth_headers
 ):
-    # The test environment installs the backend without the whisperx extra, so
-    # selecting whisperx must fail fast with an actionable message.
+    # When the backend is installed without the whisperx extra, selecting
+    # whisperx must fail fast with an actionable message.
     await create_user(
         db_session,
         user_id="user-1",

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -18,7 +19,6 @@ from ...runtime_settings import (
     get_runtime_setting_rows,
     load_runtime_settings_cache,
 )
-from ...transcription_whisperx import _import_whisperx
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -187,13 +187,19 @@ async def update_runtime_settings(
                     f"got '{provider}'."
                 ),
             )
-        if provider == "whisperx":
+        if provider == "whisperx" and importlib.util.find_spec("whisperx") is None:
             # Fail fast if the optional whisperx extra is missing instead of
-            # letting the first transcription task blow up mid-run.
-            try:
-                _import_whisperx()
-            except RuntimeError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            # letting the first transcription task blow up mid-run. find_spec
+            # only checks availability — it never imports the heavy torch stack
+            # into the API process or blocks the event loop.
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "TRANSCRIPTION_PROVIDER=whisperx but the whisperx package "
+                    "is not installed. Install the backend's optional extra "
+                    "first: `uv sync --extra whisperx`."
+                ),
+            )
 
     for setting_key, raw_value in payload.updates.items():
         value = raw_value.strip()
