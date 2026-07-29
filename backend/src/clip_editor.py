@@ -7,11 +7,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
+import logging
 import subprocess
 import tempfile
 import uuid
 
 from .caption_templates import get_template
+from .encoder import adapt_command_for_vaapi, get_vaapi_device, vaapi_enabled
 from .video_utils import (
     ass_fonts_dir,
     build_assemblyai_ass_subtitles,
@@ -19,6 +21,8 @@ from .video_utils import (
     get_words_in_range,
     load_cached_transcript_data,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -42,6 +46,23 @@ def _safe_name(prefix: str) -> str:
 
 
 def _run(command: list[str]) -> None:
+    # When VAAPI is enabled, try the hardware-encoder rewrite of the libx264
+    # command first; on failure fall back to the original software encode so a
+    # missing/busy GPU never fails the edit.
+    if vaapi_enabled():
+        vaapi_command = adapt_command_for_vaapi(command)
+        if vaapi_command:
+            try:
+                subprocess.run(
+                    vaapi_command, check=True, capture_output=True, text=True
+                )
+                return
+            except subprocess.CalledProcessError as exc:
+                logger.warning(
+                    "VAAPI encode failed (exit %s, device %s); retrying with libx264",
+                    exc.returncode,
+                    get_vaapi_device(),
+                )
     subprocess.run(command, check=True, capture_output=True, text=True)
 
 
