@@ -37,6 +37,20 @@ PROCESS_ENV_SETTING_KEYS = frozenset(
     }
 )
 
+# Non-secret settings (plain configuration values, not credentials) are stored
+# as marked plaintext so admins can manage them without configuring
+# APP_SETTINGS_ENCRYPTION_KEY. Everything else stays AES-GCM encrypted —
+# including OLLAMA_BASE_URL, since hosted endpoint URLs can embed credentials.
+NON_SECRET_SETTING_KEYS = frozenset(
+    {
+        "TRANSCRIPTION_PROVIDER",
+        "LLM",
+    }
+)
+
+# Marker prefix distinguishing plaintext rows from "v1:" encrypted rows.
+_PLAINTEXT_PREFIX = "plain:"
+
 _settings_cache: dict[str, str] = {}
 _prefer_admin_value_cache: set[str] = set()
 _original_env_values = {key: os.getenv(key) for key in RUNTIME_SETTING_KEYS}
@@ -91,6 +105,35 @@ def decrypt_setting_value(encrypted_value: str) -> str:
     return decrypted.decode("utf-8")
 
 
+def encode_setting_value(setting_key: str, value: str) -> str:
+    """Prepare a setting value for storage in app_settings.
+
+    Non-secret settings are stored as marked plaintext (no encryption key
+    needed); secrets are AES-GCM encrypted as before.
+    """
+    if setting_key in NON_SECRET_SETTING_KEYS:
+        return _PLAINTEXT_PREFIX + value
+    return encrypt_setting_value(value)
+
+
+def decode_setting_value(setting_key: str, stored_value: str) -> str:
+    """Decode a stored setting value, plaintext-marked or encrypted.
+
+    The plaintext marker is only honored for settings currently in the
+    non-secret tier — a plain: row for a secret setting is rejected so the
+    AES-GCM authenticity guarantee is not bypassable via a raw DB write.
+    Encrypted rows always decrypt regardless of the setting's current tier, so
+    a setting flipped from encrypted to plaintext keeps working until rewritten.
+    """
+    if stored_value.startswith(_PLAINTEXT_PREFIX):
+        if setting_key not in NON_SECRET_SETTING_KEYS:
+            raise ValueError(
+                f"Plaintext storage is not allowed for secret setting {setting_key}"
+            )
+        return stored_value[len(_PLAINTEXT_PREFIX):]
+    return decrypt_setting_value(stored_value)
+
+
 async def load_runtime_settings_cache(db: AsyncSession) -> None:
     rows = await db.execute(
         text(
@@ -113,9 +156,9 @@ async def load_runtime_settings_cache(db: AsyncSession) -> None:
         if not encrypted_value:
             continue
         try:
-            value = decrypt_setting_value(encrypted_value).strip()
+            value = decode_setting_value(setting_key, encrypted_value).strip()
         except Exception as exc:
-            logger.warning("Unable to decrypt runtime setting %s: %s", setting_key, exc)
+            logger.warning("Unable to decode runtime setting %s: %s", setting_key, exc)
             continue
         if value:
             loaded[setting_key] = value
@@ -124,7 +167,7 @@ async def load_runtime_settings_cache(db: AsyncSession) -> None:
     _settings_cache.update(loaded)
     _prefer_admin_value_cache.clear()
     _prefer_admin_value_cache.update(prefer_admin_keys)
-    logger.info("Loaded %s encrypted runtime settings", len(_settings_cache))
+    logger.info("Loaded %s runtime settings", len(_settings_cache))
 
 
 def get_cached_setting(name: str) -> str | None:

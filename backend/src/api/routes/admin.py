@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -12,8 +13,9 @@ from ...ai import _get_missing_llm_key_error
 from ...config import get_config
 from ...database import get_db
 from ...runtime_settings import (
+    NON_SECRET_SETTING_KEYS,
     RUNTIME_SETTING_KEYS,
-    encrypt_setting_value,
+    encode_setting_value,
     get_runtime_setting_rows,
     load_runtime_settings_cache,
 )
@@ -60,7 +62,9 @@ SETTING_METADATA = {
     "OLLAMA_BASE_URL": {
         "label": "Ollama base URL",
         "description": "Optional URL for local or hosted Ollama-compatible endpoints.",
-        "input_type": "text",
+        # Masked (and stored encrypted) because hosted endpoint URLs can embed
+        # basic-auth credentials.
+        "input_type": "password",
     },
     "OLLAMA_API_KEY": {
         "label": "Ollama API key",
@@ -113,6 +117,7 @@ def _setting_status(
         "label": metadata["label"],
         "description": metadata["description"],
         "input_type": metadata["input_type"],
+        "secret": setting_key not in NON_SECRET_SETTING_KEYS,
         "source": source,
         "configured": has_env or has_admin_value,
         "has_admin_value": has_admin_value,
@@ -172,11 +177,35 @@ async def update_runtime_settings(
         if config_error and "API_KEY is not set" not in config_error:
             raise HTTPException(status_code=400, detail=config_error)
 
+    if "TRANSCRIPTION_PROVIDER" in payload.updates:
+        provider = payload.updates["TRANSCRIPTION_PROVIDER"].strip().lower()
+        if provider and provider not in ("assemblyai", "whisperx"):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "TRANSCRIPTION_PROVIDER must be 'assemblyai' or 'whisperx', "
+                    f"got '{provider}'."
+                ),
+            )
+        if provider == "whisperx" and importlib.util.find_spec("whisperx") is None:
+            # Fail fast if the optional whisperx extra is missing instead of
+            # letting the first transcription task blow up mid-run. find_spec
+            # only checks availability — it never imports the heavy torch stack
+            # into the API process or blocks the event loop.
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "TRANSCRIPTION_PROVIDER=whisperx but the whisperx package "
+                    "is not installed. Install the backend's optional extra "
+                    "first: `uv sync --extra whisperx`."
+                ),
+            )
+
     for setting_key, raw_value in payload.updates.items():
         value = raw_value.strip()
         if not value:
             continue
-        encrypted_value = encrypt_setting_value(value)
+        encrypted_value = encode_setting_value(setting_key, value)
         await db.execute(
             text(
                 """
