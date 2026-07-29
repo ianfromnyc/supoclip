@@ -9,18 +9,32 @@ libx264 commands when VAAPI is disabled, and leaves runners with the original
 libx264 command as a ready-made fallback when a hardware encode fails.
 """
 
+import logging
 from typing import List, Optional
 
 from .config import get_config
+
+logger = logging.getLogger(__name__)
 
 # Software-decoded frames must be converted to NV12 and uploaded to GPU
 # surfaces before h264_vaapi can consume them.
 VAAPI_UPLOAD_FILTER = "format=nv12,hwupload"
 # Label used when we splice the upload stage onto a -filter_complex graph.
 _HW_LABEL = "[vaapi_hw]"
+# Name of the single hardware device shared by decode, filters and encode.
+# One -init_hw_device that -hwaccel_device and -filter_hw_device both
+# reference by name; passing raw paths instead would create duplicate device
+# instances and make ffmpeg warn about ambiguous filter-device selection.
+_HW_DEVICE_NAME = "supoclip_va"
 # Inputs that get hardware decode. Only real video files: concat list files,
 # lavfi sources, images and audio must keep software demux/decode.
 _VIDEO_INPUT_EXTENSIONS = (".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi")
+
+
+# Process-wide circuit breaker: once a VAAPI encode has failed, stop trying.
+# Without it a broken/misconfigured GPU would make every single encode run
+# twice (failed hardware attempt + software retry) for the whole task.
+_vaapi_runtime_disabled = False
 
 
 def vaapi_enabled() -> bool:
@@ -31,7 +45,43 @@ def get_vaapi_device() -> str:
     return get_config().vaapi_device
 
 
-def _insert_hwaccel_decode(args: List[str], device: str) -> List[str]:
+def vaapi_available() -> bool:
+    """VAAPI is configured and has not tripped the runtime circuit breaker."""
+    return vaapi_enabled() and not _vaapi_runtime_disabled
+
+
+def record_vaapi_failure(reason: str) -> None:
+    """Disable VAAPI for the rest of this process after its first failure."""
+    global _vaapi_runtime_disabled
+    if _vaapi_runtime_disabled:
+        return
+    _vaapi_runtime_disabled = True
+    logger.warning(
+        "VAAPI encode on %s failed (%s); using libx264 for the rest of this process",
+        get_vaapi_device(),
+        reason,
+    )
+
+
+def _global_quality(crf: str) -> str:
+    """Map a libx264 CRF to an ICQ/QVBR global_quality value.
+
+    Both scales run 1-51, lower = better, and mid-range CRFs (18-23) track
+    closely enough to reuse as-is. At the near-lossless end the iHD driver
+    compresses noticeably harder than libx264 at the same number, so
+    intermediate passes (CRF <= 16) get a 4-point boost to stay effectively
+    lossless across the extra re-encode generation.
+    """
+    try:
+        value = int(crf)
+    except ValueError:
+        return crf
+    if value <= 16:
+        value = max(1, value - 4)
+    return str(value)
+
+
+def _insert_hwaccel_decode(args: List[str]) -> List[str]:
     """Add VAAPI hardware decode in front of each video-file input.
 
     Deliberately decode-to-system-memory (no `-hwaccel_output_format vaapi`):
@@ -44,22 +94,38 @@ def _insert_hwaccel_decode(args: List[str], device: str) -> List[str]:
     to software decode.
     """
     result: List[str] = []
-    saw_demuxer = False  # a -f before the input means concat/lavfi/etc.
+    # A pending -f means the NEXT file uses an explicit demuxer/muxer
+    # (concat, lavfi, ...). The flag is scoped to that one file: it resets at
+    # the input it precedes, and also at any bare output-file token so a
+    # muxer -f can never suppress hwaccel on a later input.
+    saw_demuxer = False
     index = 0
     while index < len(args):
         arg = args[index]
-        if arg == "-f":
-            saw_demuxer = True
         if arg == "-i" and index + 1 < len(args):
             input_path = args[index + 1]
             if not saw_demuxer and input_path.lower().endswith(
                 _VIDEO_INPUT_EXTENSIONS
             ):
-                result += ["-hwaccel", "vaapi", "-hwaccel_device", device]
-            saw_demuxer = False  # per-input options end at the input file
+                result += ["-hwaccel", "vaapi", "-hwaccel_device", _HW_DEVICE_NAME]
+            saw_demuxer = False
             result += [arg, input_path]
             index += 2
             continue
+        if arg.startswith("-"):
+            if arg == "-f":
+                saw_demuxer = True
+            result.append(arg)
+            # Consume this option's value (values never start with "-" in the
+            # commands we build), so any bare token seen below is a file.
+            if index + 1 < len(args) and not args[index + 1].startswith("-"):
+                result.append(args[index + 1])
+                index += 2
+                continue
+            index += 1
+            continue
+        # Bare token not owned by an option: a file argument (e.g. the output).
+        saw_demuxer = False
         result.append(arg)
         index += 1
     return result
@@ -104,18 +170,26 @@ def adapt_command_for_vaapi(command: List[str]) -> Optional[List[str]]:
         else:
             result.append(arg)
 
-    # Rate control, inserted right after the codec flag. Bitrate-capped
-    # profiles (export presets with -maxrate) map to VBR; CRF profiles map to
-    # ICQ, VAAPI's constant-quality mode, reusing the CRF value since both are
-    # roughly "lower is better quality" on comparable scales.
+    # Rate control, inserted right after the codec flag.
     rc_args: List[str] = []
-    if "-b:v" in result or "-maxrate" in result:
+    has_bitrate = "-b:v" in result or "-maxrate" in result
+    if crf is not None and has_bitrate:
+        # Quality-targeted encode with a peak cap (export presets: CRF plus
+        # -maxrate/-bufsize). QVBR keeps the constant-quality target while the
+        # retained cap args still bound the peaks; promoting the cap to a plain
+        # VBR bitrate target was measured to inflate output roughly 2x. QVBR
+        # refuses to open without a bitrate, so reuse the cap as -b:v.
+        rc_args = ["-rc_mode", "QVBR", "-global_quality", _global_quality(crf)]
+        if "-b:v" not in result and "-maxrate" in result:
+            rc_args += ["-b:v", result[result.index("-maxrate") + 1]]
+    elif has_bitrate:
         rc_args = ["-rc_mode", "VBR"]
         if "-b:v" not in result and "-maxrate" in result:
-            # VBR needs a target bitrate; aim for the cap the preset defined.
+            # VBR needs a target bitrate; aim for the cap the profile defined.
             rc_args += ["-b:v", result[result.index("-maxrate") + 1]]
     elif crf is not None:
-        rc_args = ["-rc_mode", "ICQ", "-global_quality", crf]
+        # ICQ is VAAPI's constant-quality mode, the CRF analogue.
+        rc_args = ["-rc_mode", "ICQ", "-global_quality", _global_quality(crf)]
     codec_pos = result.index("h264_vaapi") + 1
     result[codec_pos:codec_pos] = rc_args
 
@@ -141,11 +215,16 @@ def adapt_command_for_vaapi(command: List[str]) -> Optional[List[str]]:
         insert_at = result.index("-c:v")
         result[insert_at:insert_at] = ["-vf", VAAPI_UPLOAD_FILTER]
 
-    # Hardware-decode each video-file input on the same device.
-    device = get_vaapi_device()
-    result = _insert_hwaccel_decode(result, device)
+    # Hardware-decode each video-file input on the same shared device.
+    result = _insert_hwaccel_decode(result)
 
-    # Global option creating the hardware device; goes right after `ffmpeg -y`.
+    # Create the shared, named hardware device and point the software->GPU
+    # filter boundary (hwupload) at it; goes right after `ffmpeg -y`.
     device_at = 2 if len(result) > 1 and result[1] == "-y" else 1
-    result[device_at:device_at] = ["-vaapi_device", device]
+    result[device_at:device_at] = [
+        "-init_hw_device",
+        f"vaapi={_HW_DEVICE_NAME}:{get_vaapi_device()}",
+        "-filter_hw_device",
+        _HW_DEVICE_NAME,
+    ]
     return result

@@ -24,7 +24,7 @@ import srt
 from datetime import timedelta
 
 from .config import get_config
-from .encoder import adapt_command_for_vaapi, get_vaapi_device, vaapi_enabled, VAAPI_UPLOAD_FILTER
+from .encoder import adapt_command_for_vaapi, record_vaapi_failure, vaapi_available
 from .clip_cleanup import DEFAULT_FILTERED_WORDS, clip_cleanup_enabled
 from .clip_source_map import (
     normalize_source_ranges,
@@ -69,86 +69,6 @@ class VideoProcessor:
         if not resolved_font:
             resolved_font = find_font_path("THEBOLDFONT")
         self.font_path = str(resolved_font) if resolved_font else ""
-
-    def get_optimal_encoding_settings(
-        self, target_quality: str = "high"
-    ) -> Dict[str, Any]:
-        """Get optimal encoding settings for different quality levels.
-
-        MoviePy-style profile dicts. When VIDEO_ENCODER=vaapi the CRF profiles
-        map to ICQ (VAAPI's constant-quality mode, comparable scale to CRF) and
-        the bitrate profile keeps its bitrate; the NV12 hwupload filter replaces
-        the yuv420p pixel format and there is no software preset to tune.
-        """
-        if vaapi_enabled():
-            device = get_vaapi_device()
-            vaapi_settings = {
-                "high": {
-                    "codec": "h264_vaapi",
-                    "audio_codec": "aac",
-                    "audio_bitrate": "256k",
-                    "ffmpeg_params": [
-                        "-vaapi_device",
-                        device,
-                        "-vf",
-                        VAAPI_UPLOAD_FILTER,
-                        "-rc_mode",
-                        "ICQ",
-                        "-global_quality",
-                        "18",
-                        "-profile:v",
-                        "high",
-                        "-movflags",
-                        "+faststart",
-                        "-sws_flags",
-                        "lanczos",
-                    ],
-                },
-                "medium": {
-                    "codec": "h264_vaapi",
-                    "audio_codec": "aac",
-                    # The bitrate drives VBR rate control on the GPU encoder.
-                    "bitrate": "4000k",
-                    "audio_bitrate": "192k",
-                    "ffmpeg_params": [
-                        "-vaapi_device",
-                        device,
-                        "-vf",
-                        VAAPI_UPLOAD_FILTER,
-                    ],
-                },
-            }
-            return vaapi_settings.get(target_quality, vaapi_settings["high"])
-
-        settings = {
-            "high": {
-                "codec": "libx264",
-                "audio_codec": "aac",
-                "audio_bitrate": "256k",
-                "preset": "slow",
-                "ffmpeg_params": [
-                    "-crf",
-                    "18",
-                    "-pix_fmt",
-                    "yuv420p",
-                    "-profile:v",
-                    "high",
-                    "-movflags",
-                    "+faststart",
-                    "-sws_flags",
-                    "lanczos",
-                ],
-            },
-            "medium": {
-                "codec": "libx264",
-                "audio_codec": "aac",
-                "bitrate": "4000k",
-                "audio_bitrate": "192k",
-                "preset": "fast",
-                "ffmpeg_params": ["-crf", "23", "-pix_fmt", "yuv420p"],
-            },
-        }
-        return settings.get(target_quality, settings["high"])
 
 
 def _prepare_audio_for_transcription(video_path: Path) -> Path:
@@ -864,22 +784,23 @@ def run_encode_command(
     """Run an ffmpeg encode with the configured video encoder.
 
     Call sites build plain libx264 commands. When VIDEO_ENCODER=vaapi the
-    command is rewritten for h264_vaapi first; if the hardware encode fails
-    (missing render node, unsupported driver, ...) we log a warning and retry
-    once with the original libx264 command so the task degrades to slower
-    software encoding instead of erroring out.
+    command is rewritten for h264_vaapi first; if the hardware run fails or
+    times out we retry with the original libx264 command, and the failure
+    trips a process-wide circuit breaker so later encodes skip the doomed
+    hardware attempt entirely.
     """
-    if vaapi_enabled():
+    if vaapi_available():
         vaapi_command = adapt_command_for_vaapi(command)
         if vaapi_command:
-            result = run_ffmpeg_command(vaapi_command, timeout=timeout)
-            if result.returncode == 0:
-                return result
-            logger.warning(
-                "VAAPI encode failed (exit %s, device %s); retrying with libx264",
-                result.returncode,
-                get_vaapi_device(),
-            )
+            try:
+                result = run_ffmpeg_command(vaapi_command, timeout=timeout)
+            except subprocess.TimeoutExpired:
+                # A hung hardware encode should degrade, not abort the task.
+                record_vaapi_failure(f"encode timed out after {timeout}s")
+            else:
+                if result.returncode == 0:
+                    return result
+                record_vaapi_failure(f"encode exited {result.returncode}")
     return run_ffmpeg_command(command, timeout=timeout)
 
 
