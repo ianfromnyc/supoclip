@@ -124,7 +124,7 @@ utils/               → Thread pool helpers for blocking operations (async_help
 
 1. **Input** → YouTube URL (yt-dlp) or uploaded file
 2. **Transcription** → AssemblyAI word-level timestamps (cached as `.transcript_cache.json`); or local WhisperX via `TRANSCRIPTION_PROVIDER=whisperx` (`src/transcription_whisperx.py`, optional `whisperx` uv extra)
-3. **AI Analysis** → Pydantic AI selects 3-7 viral segments (10-45s each) with virality scoring
+3. **AI Analysis** → Pydantic AI selects 2-5 viral segments (15-60s each, ideally 25-50s) with virality scoring
 4. **Clip Generation** → direct `ffmpeg` subprocess calls (`run_ffmpeg_command()` in `video_utils.py`) build the clips. There is no MoviePy dependency — every render is a hand-built ffmpeg argv using `-vf`/`-filter_complex`. Clips get:
    - Face-centered cropping: MediaPipe → OpenCV DNN → Haar cascade (fallback chain)
    - Word-synced subtitles from AssemblyAI
