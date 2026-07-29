@@ -12,8 +12,9 @@ from ...ai import _get_missing_llm_key_error
 from ...config import get_config
 from ...database import get_db
 from ...runtime_settings import (
+    NON_SECRET_SETTING_KEYS,
     RUNTIME_SETTING_KEYS,
-    encrypt_setting_value,
+    encode_setting_value,
     get_runtime_setting_rows,
     load_runtime_settings_cache,
 )
@@ -113,6 +114,7 @@ def _setting_status(
         "label": metadata["label"],
         "description": metadata["description"],
         "input_type": metadata["input_type"],
+        "secret": setting_key not in NON_SECRET_SETTING_KEYS,
         "source": source,
         "configured": has_env or has_admin_value,
         "has_admin_value": has_admin_value,
@@ -176,7 +178,7 @@ async def update_runtime_settings(
         value = raw_value.strip()
         if not value:
             continue
-        encrypted_value = encrypt_setting_value(value)
+        encrypted_value = encode_setting_value(setting_key, value)
         await db.execute(
             text(
                 """
