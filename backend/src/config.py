@@ -122,6 +122,18 @@ class Config:
             "FAST_MODE_TRANSCRIPT_MODEL", "universal"
         )
 
+        # Video encoder: `libx264` (software, default) or `vaapi` (Intel GPU
+        # hardware encoding via h264_vaapi). VAAPI also needs the DRM render
+        # node mounted into the backend and worker containers — see
+        # docker-compose.vaapi.yml.
+        self.video_encoder = self._normalize_video_encoder(
+            os.getenv("VIDEO_ENCODER", "libx264")
+        )
+        self.vaapi_device = (
+            os.getenv("VAAPI_DEVICE", "/dev/dri/renderD128").strip()
+            or "/dev/dri/renderD128"
+        )
+
     @staticmethod
     def _get_optional_env(name: str):
         value = os.getenv(name)
@@ -187,6 +199,13 @@ class Config:
         if normalized in {"360", "480", "720", "1080", "1440", "2160"}:
             return normalized
         return "1080"
+
+    @staticmethod
+    def _normalize_video_encoder(value: str | None) -> str:
+        normalized = (value or "").strip().lower()
+        if normalized == "vaapi":
+            return "vaapi"
+        return "libx264"
 
     @staticmethod
     def _normalize_youtube_metadata_provider(value: str | None) -> str:

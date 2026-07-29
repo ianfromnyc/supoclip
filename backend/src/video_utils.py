@@ -24,6 +24,7 @@ import srt
 from datetime import timedelta
 
 from .config import get_config
+from .encoder import adapt_command_for_vaapi, record_vaapi_failure, vaapi_available
 from .clip_cleanup import DEFAULT_FILTERED_WORDS, clip_cleanup_enabled
 from .clip_source_map import (
     normalize_source_ranges,
@@ -68,40 +69,6 @@ class VideoProcessor:
         if not resolved_font:
             resolved_font = find_font_path("THEBOLDFONT")
         self.font_path = str(resolved_font) if resolved_font else ""
-
-    def get_optimal_encoding_settings(
-        self, target_quality: str = "high"
-    ) -> Dict[str, Any]:
-        """Get optimal encoding settings for different quality levels."""
-        settings = {
-            "high": {
-                "codec": "libx264",
-                "audio_codec": "aac",
-                "audio_bitrate": "256k",
-                "preset": "slow",
-                "ffmpeg_params": [
-                    "-crf",
-                    "18",
-                    "-pix_fmt",
-                    "yuv420p",
-                    "-profile:v",
-                    "high",
-                    "-movflags",
-                    "+faststart",
-                    "-sws_flags",
-                    "lanczos",
-                ],
-            },
-            "medium": {
-                "codec": "libx264",
-                "audio_codec": "aac",
-                "bitrate": "4000k",
-                "audio_bitrate": "192k",
-                "preset": "fast",
-                "ffmpeg_params": ["-crf", "23", "-pix_fmt", "yuv420p"],
-            },
-        }
-        return settings.get(target_quality, settings["high"])
 
 
 def _prepare_audio_for_transcription(video_path: Path) -> Path:
@@ -840,6 +807,32 @@ def run_ffmpeg_command(command: List[str], timeout: int = 900) -> subprocess.Com
     return result
 
 
+def run_encode_command(
+    command: List[str], timeout: int = 900
+) -> subprocess.CompletedProcess:
+    """Run an ffmpeg encode with the configured video encoder.
+
+    Call sites build plain libx264 commands. When VIDEO_ENCODER=vaapi the
+    command is rewritten for h264_vaapi first; if the hardware run fails or
+    times out we retry with the original libx264 command, and the failure
+    trips a process-wide circuit breaker so later encodes skip the doomed
+    hardware attempt entirely.
+    """
+    if vaapi_available():
+        vaapi_command = adapt_command_for_vaapi(command)
+        if vaapi_command:
+            try:
+                result = run_ffmpeg_command(vaapi_command, timeout=timeout)
+            except subprocess.TimeoutExpired:
+                # A hung hardware encode should degrade, not abort the task.
+                record_vaapi_failure(f"encode timed out after {timeout}s")
+            else:
+                if result.returncode == 0:
+                    return result
+                record_vaapi_failure(f"encode exited {result.returncode}")
+    return run_ffmpeg_command(command, timeout=timeout)
+
+
 def ffprobe_has_audio(video_path: Path) -> bool:
     result = run_ffmpeg_command(
         [
@@ -1115,7 +1108,7 @@ def render_ranges_crossfade_ffmpeg(
     if has_audio:
         command += ["-c:a", "aac", "-b:a", "192k"]
     command += ["-movflags", "+faststart", str(output_path)]
-    return run_ffmpeg_command(command, timeout=1800).returncode == 0
+    return run_encode_command(command, timeout=1800).returncode == 0
 
 
 def render_source_ranges_ffmpeg(
@@ -1155,7 +1148,7 @@ def render_source_ranges_ffmpeg(
             "+faststart",
             str(output_path),
         ]
-        return run_ffmpeg_command(command).returncode == 0
+        return run_encode_command(command).returncode == 0
 
     has_audio = ffprobe_has_audio(video_path)
 
@@ -1212,7 +1205,7 @@ def render_source_ranges_ffmpeg(
     if has_audio:
         command.extend(["-c:a", "aac", "-b:a", "192k"])
     command.extend(["-movflags", "+faststart", str(output_path)])
-    return run_ffmpeg_command(command, timeout=1800).returncode == 0
+    return run_encode_command(command, timeout=1800).returncode == 0
 
 
 def ass_timestamp(seconds: float) -> str:
@@ -2604,7 +2597,7 @@ def render_reframed_clip_ffmpeg(
             "-movflags", "+faststart",
             str(output_path),
         ]
-        return run_ffmpeg_command(command).returncode == 0, out_w, out_h
+        return run_encode_command(command).returncode == 0, out_w, out_h
 
     plan = (
         detect_speaker_reframe_plan(input_path, output_format)
@@ -2633,7 +2626,7 @@ def render_reframed_clip_ffmpeg(
             "-movflags", "+faststart",
             str(output_path),
         ]
-        return run_ffmpeg_command(command).returncode == 0, 1080, 1920
+        return run_encode_command(command).returncode == 0, 1080, 1920
 
     if plan and plan["mode"] == "pan":
         video_filter = (
@@ -2650,7 +2643,7 @@ def render_reframed_clip_ffmpeg(
             "-movflags", "+faststart",
             str(output_path),
         ]
-        return run_ffmpeg_command(command).returncode == 0, 1080, 1920
+        return run_encode_command(command).returncode == 0, 1080, 1920
 
     # Default "vertical": scene-aware — tracked crop for face shots, blurred-
     # background full-frame fit for content shots (tweets/graphs/slides).
@@ -2671,7 +2664,7 @@ def render_reframed_clip_ffmpeg(
             "-movflags", "+faststart",
             str(output_path),
         ]
-        return run_ffmpeg_command(command).returncode == 0, 1080, 1920
+        return run_encode_command(command).returncode == 0, 1080, 1920
 
     if subs:
         video_filter = f"{video_filter},{subs}"
@@ -2683,7 +2676,7 @@ def render_reframed_clip_ffmpeg(
         "-movflags", "+faststart",
         str(output_path),
     ]
-    return run_ffmpeg_command(command).returncode == 0, 1080, 1920
+    return run_encode_command(command).returncode == 0, 1080, 1920
 
 
 def burn_ass_subtitles_ffmpeg(
@@ -2720,7 +2713,7 @@ def burn_ass_subtitles_ffmpeg(
         "+faststart",
         str(output_path),
     ]
-    return run_ffmpeg_command(command).returncode == 0
+    return run_encode_command(command).returncode == 0
 
 
 def parse_timestamp_to_seconds(timestamp_str: str) -> float:
@@ -3504,7 +3497,7 @@ def apply_transition_effect(
             "+faststart",
             str(output_path),
         ]
-        success = run_ffmpeg_command(command).returncode == 0
+        success = run_encode_command(command).returncode == 0
         if success:
             logger.info("Applied transition effect: %s", output_path)
         return success
@@ -3692,7 +3685,7 @@ def insert_broll_into_clip(
             "+faststart",
             str(output_path),
         ]
-        if run_ffmpeg_command(command).returncode != 0:
+        if run_encode_command(command).returncode != 0:
             return False
 
         logger.info(
