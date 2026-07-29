@@ -204,11 +204,22 @@ def _assemblyai_speech_model_value(speech_model: str):
 
 
 def get_video_transcript(video_path: Path, speech_model: str = "universal") -> str:
-    """Get transcript using AssemblyAI with word-level timing for precise subtitles."""
+    """Get a transcript with word-level timing for precise subtitles.
+
+    Dispatches on TRANSCRIPTION_PROVIDER: AssemblyAI (cloud, default) or
+    WhisperX (local). `speech_model` is AssemblyAI-specific and ignored by
+    the WhisperX provider.
+    """
     logger.info(f"Getting transcript for: {video_path}")
 
-    # Configure AssemblyAI
     runtime_config = get_config()
+    if runtime_config.transcription_provider == "whisperx":
+        # Lazy import keeps whisperx (and its torch stack) an optional install.
+        from .transcription_whisperx import get_video_transcript_whisperx
+
+        return get_video_transcript_whisperx(video_path)
+
+    # Configure AssemblyAI
     aai.settings.api_key = runtime_config.assembly_ai_api_key
     aai.settings.http_timeout = runtime_config.assembly_ai_http_timeout_seconds
     transcriber = aai.Transcriber()

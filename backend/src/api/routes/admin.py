@@ -27,6 +27,16 @@ SETTING_METADATA = {
         "description": "Used for video transcription.",
         "input_type": "password",
     },
+    "TRANSCRIPTION_PROVIDER": {
+        "label": "Transcription provider",
+        "description": "assemblyai (cloud, default) or whisperx (local, needs the whisperx extra installed).",
+        "input_type": "text",
+    },
+    "HF_TOKEN": {
+        "label": "Hugging Face token",
+        "description": "Used by WhisperX speaker diarization to download pyannote models.",
+        "input_type": "password",
+    },
     "LLM": {
         "label": "LLM model",
         "description": "Provider and model, for example openai:gpt-5.2.",
