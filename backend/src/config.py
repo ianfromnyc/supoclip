@@ -25,6 +25,26 @@ class Config:
         self.assembly_ai_http_timeout_seconds = int(
             os.getenv("ASSEMBLY_AI_HTTP_TIMEOUT_SECONDS", "900")
         )
+
+        # Transcription provider: AssemblyAI (cloud, default) or WhisperX (local).
+        self.transcription_provider = self._normalize_transcription_provider(
+            self._get_runtime_setting("TRANSCRIPTION_PROVIDER")
+        )
+        self.whisperx_model = (
+            os.getenv("WHISPERX_MODEL", "large-v3").strip() or "large-v3"
+        )
+        # `auto`, `cuda` or `cpu`; resolved at transcription time because
+        # auto-detection needs torch, which only ships with the whisperx extra.
+        self.whisperx_device = (
+            os.getenv("WHISPERX_DEVICE", "auto").strip().lower() or "auto"
+        )
+        # None means "derive from the resolved device" (float16 cuda, int8 cpu).
+        self.whisperx_compute_type = (
+            (os.getenv("WHISPERX_COMPUTE_TYPE") or "").strip() or None
+        )
+        self.whisperx_diarize = self._get_bool_env("WHISPERX_DIARIZE", True)
+        # Hugging Face token; needed to download pyannote diarization models.
+        self.hf_token = self._get_runtime_setting("HF_TOKEN")
         self.pexels_api_key = self._get_runtime_setting("PEXELS_API_KEY")
         self.apify_api_token = self._get_runtime_setting("APIFY_API_TOKEN")
         self.youtube_download_provider = self._normalize_youtube_download_provider(
@@ -122,6 +142,8 @@ class Config:
     def as_runtime_settings(self) -> dict[str, str | None]:
         return {
             "ASSEMBLY_AI_API_KEY": self.assembly_ai_api_key,
+            "TRANSCRIPTION_PROVIDER": self.transcription_provider,
+            "HF_TOKEN": self.hf_token,
             "LLM": self.llm,
             "OPENAI_API_KEY": self.openai_api_key,
             "GOOGLE_API_KEY": self.google_api_key,
@@ -151,6 +173,13 @@ class Config:
         if not value:
             return default
         return [item.strip() for item in value.split(",") if item.strip()]
+
+    @staticmethod
+    def _normalize_transcription_provider(value: str | None) -> str:
+        normalized = (value or "").strip().lower()
+        if normalized == "whisperx":
+            return "whisperx"
+        return "assemblyai"
 
     @staticmethod
     def _normalize_apify_quality(value: str | None) -> str:
