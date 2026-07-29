@@ -116,7 +116,6 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
       - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
-      - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-medium}
       - QUEUED_TASK_TIMEOUT_SECONDS=${QUEUED_TASK_TIMEOUT_SECONDS:-180}
       # Concurrent worker jobs; lower when local GPU transcription/encoding
       # shares one card with the jobs.
@@ -231,7 +230,6 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
       - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
-      - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-medium}
       - QUEUED_TASK_TIMEOUT_SECONDS=${QUEUED_TASK_TIMEOUT_SECONDS:-180}
       # Concurrent worker jobs; lower when local GPU transcription/encoding
       # shares one card with the jobs.
