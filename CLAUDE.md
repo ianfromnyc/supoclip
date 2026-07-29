@@ -11,14 +11,23 @@ SupoClip is an open-source alternative to OpusClip — an AI-powered video clipp
 ### Docker (recommended)
 
 ```bash
-docker-compose up -d              # Start all 5 services
+docker-compose up -d              # Start all 6 services
 docker-compose up -d --build      # Rebuild after changes
 docker-compose logs -f backend    # Debug backend
 docker-compose logs -f worker     # Debug video processing
 docker-compose down               # Stop all services
 ```
 
-Services: Frontend (:3000), Backend API (:8000, docs at /docs), Worker (ARQ), PostgreSQL (:5432), Redis (:6379)
+Services and their published host ports (all bound to `127.0.0.1`):
+
+| Service | Host port | Notes |
+|---------|-----------|-------|
+| `frontend` | 3001 | Next.js listens on 3107 inside the container |
+| `backend` | 8000 | OpenAPI docs at `/docs` |
+| `mcp` | `${SUPOCLIP_MCP_PORT:-9100}` | MCP server (`mcp/`) |
+| `worker` | — | ARQ worker, no published port |
+| `redis` | 6379 | |
+| `postgres` | — | Not published; reachable only on the compose network |
 
 ### Backend (local)
 
@@ -46,17 +55,38 @@ pnpm run build        # Prisma generate + Next.js build
 pnpm run lint
 ```
 
-### Waitlist
+### Tests
+
+Both the backend and the frontend have test suites, and CI runs them
+(`.github/workflows/tests.yml`). The `Makefile` at the repo root is the
+easiest entry point because it supplies the DB/Redis/auth env vars the suites
+expect:
 
 ```bash
-cd waitlist
-pnpm install
-pnpm run dev
+make test           # backend + frontend unit tests
+make test-backend   # uv sync --all-groups, then pytest
+make test-frontend  # vitest with coverage
+make test-e2e       # Playwright against a migrated database
 ```
 
-### No tests
+Or run them directly:
 
-The project currently has no test files.
+```bash
+cd backend && uv run pytest          # 113 passing, 12 skipped
+cd frontend && pnpm run test         # vitest run
+cd frontend && pnpm run test:e2e     # prisma migrate deploy + playwright
+```
+
+- **Backend** — `backend/tests/`, pytest with `asyncio_mode = "auto"`. Split
+  into `tests/unit/` (config, auth headers, billing, AI models/prompt, clip
+  editor, video utils/service, YouTube helpers) and `tests/integration/`
+  (health, tasks, admin, feedback routes via httpx). Shared fixtures live in
+  `tests/conftest.py` and `tests/fixtures/factories.py`.
+- **Coverage gate** — `pyproject.toml` sets `--cov-fail-under=65` scoped to
+  `src/auth_headers.py` and `src/services/billing_service.py` only, so most
+  new code is not covered by the gate. Add tests next to the module you touch.
+- **Frontend** — Vitest specs colocated with the code (`src/**/*.test.ts(x)`)
+  plus a Playwright end-to-end spec in `frontend/e2e/`.
 
 ## Architecture
 
@@ -75,9 +105,11 @@ Task creation returns immediately (<100ms). Video processing happens asynchronou
 The backend was refactored from monolithic (`main.py`, legacy) to layered (`main_refactored.py`, active):
 
 ```
-api/routes/          → HTTP handlers (tasks.py, media.py)
-services/            → Business logic (task_service.py, video_service.py)
-repositories/        → Raw SQL via asyncpg (task_repository.py, clip_repository.py, source_repository.py)
+api/routes/          → HTTP handlers (tasks.py, media.py, admin.py, api_keys.py, billing.py, feedback.py)
+services/            → Business logic (task_service.py, video_service.py, api_key_service.py,
+                       billing_service.py, email_service.py + task/subscription/api-key email services)
+repositories/        → Raw SQL via asyncpg (task_repository.py, clip_repository.py,
+                       source_repository.py, api_key_repository.py, cache_repository.py)
 workers/             → ARQ job queue (tasks.py, job_queue.py, progress.py)
 utils/               → Thread pool helpers for blocking operations (async_helpers.py)
 ```
@@ -93,7 +125,7 @@ utils/               → Thread pool helpers for blocking operations (async_help
 1. **Input** → YouTube URL (yt-dlp) or uploaded file
 2. **Transcription** → AssemblyAI word-level timestamps (cached as `.transcript_cache.json`)
 3. **AI Analysis** → Pydantic AI selects 3-7 viral segments (10-45s each) with virality scoring
-4. **Clip Generation** → MoviePy creates 9:16 clips with:
+4. **Clip Generation** → direct `ffmpeg` subprocess calls (`run_ffmpeg_command()` in `video_utils.py`) build the clips. There is no MoviePy dependency — every render is a hand-built ffmpeg argv using `-vf`/`-filter_complex`. Clips get:
    - Face-centered cropping: MediaPipe → OpenCV DNN → Haar cascade (fallback chain)
    - Word-synced subtitles from AssemblyAI
    - Custom fonts (TTF files in `backend/fonts/`)
@@ -126,21 +158,23 @@ PostgreSQL 15. Schema in `init.sql`. Mixed naming conventions:
 
 | File | Purpose |
 |------|---------|
-| `src/main_refactored.py` | Active FastAPI entry point (129 lines) |
+| `src/main_refactored.py` | Active FastAPI entry point (~230 lines) |
 | `src/main.py` | Legacy monolithic entry point (do not use for new work) |
-| `src/api/routes/tasks.py` | Task CRUD, SSE progress, clip editing endpoints (711 lines) |
+| `src/api/routes/tasks.py` | Task CRUD, SSE progress, clip editing endpoints (~1090 lines) |
 | `src/api/routes/media.py` | Fonts, transitions, uploads, templates |
-| `src/services/task_service.py` | Task orchestration, clip editing logic (574 lines) |
+| `src/api/routes/admin.py` | Admin runtime-settings API (see `runtime_settings.py`) |
+| `src/services/task_service.py` | Task orchestration, clip editing logic (~980 lines) |
 | `src/services/video_service.py` | Video download, transcription, AI analysis, clip generation |
-| `src/workers/tasks.py` | ARQ worker task definitions |
+| `src/workers/tasks.py` | ARQ worker task definitions (`max_jobs = 4`, so up to 4 concurrent tasks) |
 | `src/workers/job_queue.py` | Job queue management |
 | `src/workers/progress.py` | Real-time progress via Redis |
 | `src/ai.py` | Pydantic AI agents, system prompt, segment validation |
-| `src/video_utils.py` | Video processing, cropping, subtitles (~820 lines) |
+| `src/video_utils.py` | ffmpeg command builders, cropping, subtitles (~3740 lines) |
 | `src/clip_editor.py` | Clip trim, split, merge, export presets |
 | `src/broll.py` | Pexels API B-roll integration |
 | `src/caption_templates.py` | Caption template system |
 | `src/config.py` | Environment variable configuration |
+| `src/runtime_settings.py` | Encrypted admin-editable settings loaded over the env vars |
 
 ## API Endpoints (routes in `api/routes/`)
 
@@ -207,10 +241,18 @@ Drop `.ttf` files into `backend/fonts/` or `.mp4` files into `backend/transition
 
 Edit `backend/src/ai.py`: `simplified_system_prompt` controls selection criteria, `TranscriptSegment` defines the output model, `get_most_relevant_parts_by_transcript()` runs analysis with validation.
 
+Authoritative selection bounds (the one-line summary in the pipeline section
+above is a rough sketch; these constants are what the code enforces):
+
+- **Segment count** — both prompts ask for **2-5** segments, quality over quota. `FAST_MODE_MAX_CLIPS` (default 4) and `MAX_CLIPS` (default 10) cap it further downstream.
+- **Duration** — `MIN_ACCEPTED_CLIP_SECONDS = 15` / `MAX_ACCEPTED_CLIP_SECONDS = 60` are enforced; `IDEAL_CLIP_MIN_SECONDS = 25` / `IDEAL_CLIP_MAX_SECONDS = 50` are what the prompt asks for.
+- **Hook titles** — `sanitize_hook_title()` truncates to `HOOK_TITLE_MAX_WORDS = 10` words and `HOOK_TITLE_MAX_CHARS = 64` characters, even though the prompt asks for 3-9 words.
+- **Virality** — the model returns `total_score`; it is validated to equal the sum of the four sub-scores and persisted as `generated_clips.virality_score`.
+
 ### Video processing constraints
 
-- Output: 9:16 vertical format, H.264, even pixel dimensions (`round_to_even()`)
-- Subtitles positioned at 75% down the frame
+- Output formats (`VALID_OUTPUT_FORMATS`): `vertical`, `vertical_pan`, `vertical_split` all render 1080x1920 9:16 H.264; `original` keeps the source aspect ratio. Dimensions are forced even (`round_to_even()`)
+- Subtitle vertical placement comes from each caption template's `position_y` in `caption_templates.py` (0.70-0.82 of frame height; the default template uses 0.80)
 - Virality scoring: `hook_score`, `engagement_score`, `value_score`, `shareability_score` (0-25 each, summed to `virality_score` 0-100)
 - Each segment gets an AI-written `hook_title` (3-9 words) burned into the top safe area for the first ~4s (`build_hook_title_ass` in `video_utils.py`), persisted on `generated_clips.hook_title`
 - Static talking-head crops get a slow ~5% Ken Burns punch-in (`kenburns_zoom_fragment`); tracked pans and split screens keep their own motion

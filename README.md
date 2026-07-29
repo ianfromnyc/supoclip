@@ -114,11 +114,13 @@ BETTER_AUTH_SECRET=change_this_in_production
 docker-compose up -d
 ```
 
-This starts:
-- **Frontend**: http://localhost:3000
+This starts (all published ports are bound to `127.0.0.1`):
+- **Frontend**: http://localhost:3001
 - **Backend API**: http://localhost:8000 (docs at /docs)
-- **PostgreSQL**: localhost:5432
+- **Worker**: ARQ video-processing worker, no published port
+- **MCP server**: localhost:9100 (`SUPOCLIP_MCP_PORT`)
 - **Redis**: localhost:6379
+- **PostgreSQL**: not published; reachable only from the other containers
 
 ### 3. Wait for Initialization
 
@@ -132,7 +134,7 @@ Wait until you see health checks passing for all services.
 
 ### 4. Access the App
 
-Open http://localhost:3000 in your browser, create an account, and start clipping!
+Open http://localhost:3001 in your browser, create an account, and start clipping!
 
 If you enable DataFast, also verify that:
 - `/js/script.js` loads from your own app domain
