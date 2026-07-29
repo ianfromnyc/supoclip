@@ -33,13 +33,14 @@ class Config:
         self.whisperx_model = (
             os.getenv("WHISPERX_MODEL", "large-v3").strip() or "large-v3"
         )
-        self.whisperx_device = self._normalize_whisperx_device(
-            os.getenv("WHISPERX_DEVICE", "cuda")
+        # `auto`, `cuda` or `cpu`; resolved at transcription time because
+        # auto-detection needs torch, which only ships with the whisperx extra.
+        self.whisperx_device = (
+            os.getenv("WHISPERX_DEVICE", "auto").strip().lower() or "auto"
         )
-        # float16 needs GPU support; int8 is the sensible CPU default.
-        default_compute_type = "int8" if self.whisperx_device == "cpu" else "float16"
+        # None means "derive from the resolved device" (float16 cuda, int8 cpu).
         self.whisperx_compute_type = (
-            (os.getenv("WHISPERX_COMPUTE_TYPE") or "").strip() or default_compute_type
+            (os.getenv("WHISPERX_COMPUTE_TYPE") or "").strip() or None
         )
         self.whisperx_diarize = self._get_bool_env("WHISPERX_DIARIZE", True)
         # Hugging Face token; needed to download pyannote diarization models.
@@ -179,13 +180,6 @@ class Config:
         if normalized == "whisperx":
             return "whisperx"
         return "assemblyai"
-
-    @staticmethod
-    def _normalize_whisperx_device(value: str | None) -> str:
-        normalized = (value or "").strip().lower()
-        if normalized == "cpu":
-            return "cpu"
-        return "cuda"
 
     @staticmethod
     def _normalize_apify_quality(value: str | None) -> str:

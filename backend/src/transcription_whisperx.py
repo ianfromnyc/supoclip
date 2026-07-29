@@ -10,11 +10,11 @@ downstream consumer (subtitles, clip editor, AI analysis) works unchanged.
 
 from __future__ import annotations
 
-import gc
 import logging
+import threading
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from .config import get_config
 
@@ -23,6 +23,16 @@ logger = logging.getLogger(__name__)
 # AssemblyAI labels speakers "A", "B", ... — map WhisperX's "SPEAKER_00" style
 # labels onto the same convention so transcripts and captions look identical.
 _SPEAKER_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+# The ARQ worker runs up to max_jobs=4 tasks concurrently and transcription is
+# pushed onto a thread, so without a lock four Whisper models could load onto
+# one GPU at once and OOM it. The lock serializes the whole WhisperX path; the
+# caches keep loaded models resident so serialized tasks skip the reload (and
+# first-run download) cost — deliberately trading memory for latency.
+_WHISPERX_LOCK = threading.Lock()
+_ASR_CACHE: Dict[Tuple[str, str, str], Any] = {}
+_ALIGN_CACHE: Dict[Tuple[Optional[str], str], Tuple[Any, Any]] = {}
+_DIARIZE_CACHE: Dict[str, Any] = {}
 
 
 def _import_whisperx():
@@ -36,6 +46,42 @@ def _import_whisperx():
             "`uv sync --extra whisperx`."
         ) from exc
     return whisperx
+
+
+def _resolve_device(configured: str) -> str:
+    """Resolve WHISPERX_DEVICE (`auto` picks cuda when available, else cpu).
+
+    Lives behind the lazy whisperx import because detection needs torch,
+    which is only installed with the whisperx extra.
+    """
+    if configured in ("cuda", "cpu"):
+        return configured
+    if configured not in ("", "auto"):
+        logger.warning(
+            "Unknown WHISPERX_DEVICE=%r; auto-detecting instead", configured
+        )
+
+    import torch
+
+    return "cuda" if torch.cuda.is_available() else "cpu"
+
+
+def _get_asr_model(whisperx, model_name: str, device: str, compute_type: str):
+    key = (model_name, device, compute_type)
+    model = _ASR_CACHE.get(key)
+    if model is None:
+        model = whisperx.load_model(model_name, device, compute_type=compute_type)
+        _ASR_CACHE[key] = model
+    return model
+
+
+def _get_align_model(whisperx, language: Optional[str], device: str):
+    key = (language, device)
+    cached = _ALIGN_CACHE.get(key)
+    if cached is None:
+        cached = whisperx.load_align_model(language_code=language, device=device)
+        _ALIGN_CACHE[key] = cached
+    return cached
 
 
 def _normalize_speaker(
@@ -86,13 +132,17 @@ def _build_segment_words(
                 ),
                 segment.get("end", start),
             )
+        # A borrowed end can precede the start (e.g. the segment end is earlier
+        # than the previous word's end); clamp to avoid negative durations.
+        start = float(start)
+        end = max(float(end), start)
         prev_end = end
 
         words.append(
             SimpleNamespace(
                 text=text,
-                start=int(round(float(start) * 1000)),
-                end=int(round(float(end) * 1000)),
+                start=int(round(start * 1000)),
+                end=int(round(end * 1000)),
                 confidence=float(raw.get("score", 1.0)),
                 speaker=_normalize_speaker(raw.get("speaker"), speaker_map),
             )
@@ -160,17 +210,18 @@ def _build_transcript(segments: List[Dict[str, Any]]) -> SimpleNamespace:
     )
 
 
-def _apply_diarization(whisperx, aligned, audio, device: str, hf_token: str):
+def _apply_diarization(aligned, audio, device: str, hf_token: str):
     """Run pyannote diarization and attach per-word speaker labels."""
-    # The diarization helpers moved between whisperx versions; support both.
-    try:
-        from whisperx.diarize import DiarizationPipeline, assign_word_speakers
-    except ImportError:
-        DiarizationPipeline = whisperx.DiarizationPipeline
-        assign_word_speakers = whisperx.assign_word_speakers
+    # whisperx's __init__ does not re-export DiarizationPipeline, so import
+    # straight from the diarize submodule (stable in the pinned <3.4 series).
+    from whisperx.diarize import DiarizationPipeline, assign_word_speakers
 
-    diarize_model = DiarizationPipeline(use_auth_token=hf_token, device=device)
-    diarize_segments = diarize_model(audio)
+    pipeline = _DIARIZE_CACHE.get(device)
+    if pipeline is None:
+        pipeline = DiarizationPipeline(use_auth_token=hf_token, device=device)
+        _DIARIZE_CACHE[device] = pipeline
+
+    diarize_segments = pipeline(audio)
     return assign_word_speakers(diarize_segments, aligned)
 
 
@@ -182,57 +233,54 @@ def get_video_transcript_whisperx(video_path: Path) -> str:
 
     config = get_config()
     whisperx = _import_whisperx()
-    device = config.whisperx_device
-
-    logger.info(
-        "Starting WhisperX transcription (model=%s, device=%s, compute_type=%s)",
-        config.whisperx_model,
-        device,
-        config.whisperx_compute_type,
+    device = _resolve_device(config.whisperx_device)
+    # float16 needs GPU support; int8 is the sensible CPU default.
+    compute_type = config.whisperx_compute_type or (
+        "float16" if device == "cuda" else "int8"
     )
 
-    # whisperx.load_audio decodes any container to 16 kHz mono via ffmpeg.
-    audio = whisperx.load_audio(str(video_path))
+    # Serialize the whole GPU-heavy path — see the lock comment at the top.
+    with _WHISPERX_LOCK:
+        logger.info(
+            "Starting WhisperX transcription (model=%s, device=%s, compute_type=%s)",
+            config.whisperx_model,
+            device,
+            compute_type,
+        )
 
-    model = whisperx.load_model(
-        config.whisperx_model, device, compute_type=config.whisperx_compute_type
-    )
-    result = model.transcribe(audio, batch_size=8)
-    language = result.get("language")
-    # Free the ASR model before loading the alignment model to cap peak memory.
-    del model
-    gc.collect()
+        # whisperx.load_audio decodes any container to 16 kHz mono via ffmpeg.
+        audio = whisperx.load_audio(str(video_path))
 
-    align_model, align_metadata = whisperx.load_align_model(
-        language_code=language, device=device
-    )
-    aligned = whisperx.align(
-        result["segments"],
-        align_model,
-        align_metadata,
-        audio,
-        device,
-        return_char_alignments=False,
-    )
-    del align_model
-    gc.collect()
+        model = _get_asr_model(whisperx, config.whisperx_model, device, compute_type)
+        result = model.transcribe(audio, batch_size=8)
+        language = result.get("language")
 
-    if config.whisperx_diarize:
-        if config.hf_token:
-            try:
-                aligned = _apply_diarization(
-                    whisperx, aligned, audio, device, config.hf_token
-                )
-            except Exception:
+        align_model, align_metadata = _get_align_model(whisperx, language, device)
+        aligned = whisperx.align(
+            result["segments"],
+            align_model,
+            align_metadata,
+            audio,
+            device,
+            return_char_alignments=False,
+        )
+
+        if config.whisperx_diarize:
+            if config.hf_token:
+                try:
+                    aligned = _apply_diarization(
+                        aligned, audio, device, config.hf_token
+                    )
+                except Exception:
+                    logger.warning(
+                        "WhisperX diarization failed; continuing without speaker labels",
+                        exc_info=True,
+                    )
+            else:
                 logger.warning(
-                    "WhisperX diarization failed; continuing without speaker labels",
-                    exc_info=True,
+                    "WHISPERX_DIARIZE is enabled but HF_TOKEN is not set; "
+                    "skipping speaker diarization"
                 )
-        else:
-            logger.warning(
-                "WHISPERX_DIARIZE is enabled but HF_TOKEN is not set; "
-                "skipping speaker diarization"
-            )
 
     transcript = _build_transcript(aligned.get("segments") or [])
     formatted_lines = format_transcript_for_analysis(transcript)

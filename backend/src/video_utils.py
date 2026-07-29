@@ -217,7 +217,12 @@ def get_video_transcript(video_path: Path, speech_model: str = "universal") -> s
         # Lazy import keeps whisperx (and its torch stack) an optional install.
         from .transcription_whisperx import get_video_transcript_whisperx
 
-        return get_video_transcript_whisperx(video_path)
+        try:
+            return get_video_transcript_whisperx(video_path)
+        except Exception as e:
+            # Same log line as the AssemblyAI path so failures look alike.
+            logger.error(f"Error in transcription: {e}")
+            raise
 
     # Configure AssemblyAI
     aai.settings.api_key = runtime_config.assembly_ai_api_key
@@ -304,6 +309,9 @@ def cache_transcript_data(video_path: Path, transcript) -> None:
 
     cache_data = {
         "version": TRANSCRIPT_CACHE_SCHEMA_VERSION,
+        # Record the producing provider so switching providers later does not
+        # silently reuse the other provider's transcript for this video.
+        "provider": get_config().transcription_provider,
         "words": words_data,
         "utterances": utterances_data,
         "text": transcript.text,
@@ -328,6 +336,16 @@ def load_cached_transcript_data(video_path: Path) -> Optional[Dict]:
             if "version" not in payload:
                 payload["version"] = TRANSCRIPT_CACHE_SCHEMA_VERSION
                 payload.setdefault("utterances", [])
+            # Caches written before provider tracking were always AssemblyAI.
+            cached_provider = payload.get("provider") or "assemblyai"
+            current_provider = get_config().transcription_provider
+            if cached_provider != current_provider:
+                logger.info(
+                    "Ignoring transcript cache from provider %s (current: %s)",
+                    cached_provider,
+                    current_provider,
+                )
+                return None
             return payload
     except Exception as e:
         logger.warning(f"Failed to load transcript cache: {e}")
