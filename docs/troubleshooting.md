@@ -15,7 +15,7 @@ docker-compose logs -f worker
 
 Also verify:
 
-- `http://localhost:3000` loads
+- `http://localhost:3001` loads
 - `http://localhost:8000/health` responds
 - `http://localhost:8000/docs` opens
 

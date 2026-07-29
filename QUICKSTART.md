@@ -61,7 +61,7 @@ LLM=openai:gpt-4
 
 ### 3. Access the Application
 
-- **Frontend**: http://localhost:3000
+- **Frontend**: http://localhost:3001 (Docker) or http://localhost:3107 (`pnpm run dev`)
 - **Backend API**: http://localhost:8000
 - **API Documentation**: http://localhost:8000/docs
 
@@ -96,7 +96,6 @@ docker-compose up -d --build
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `WHISPER_MODEL_SIZE` | `medium` | Whisper model size (tiny/base/small/medium/large) |
 | `BETTER_AUTH_SECRET` | dev secret | Auth secret (change in production!) |
 | `GOOGLE_API_KEY` | - | For Google Gemini models |
 | `ANTHROPIC_API_KEY` | - | For Claude models |
@@ -198,12 +197,15 @@ docker-compose up -d
 
 ## Architecture
 
-SupoClip runs 4 Docker containers:
+SupoClip runs 6 Docker containers. Published ports are bound to `127.0.0.1`
+only, so nothing is exposed to your network by default:
 
-1. **Frontend** (Next.js 15) - Port 3000
-2. **Backend** (FastAPI + Python) - Port 8000
-3. **PostgreSQL** - Port 5432
-4. **Redis** - Port 6379
+1. **Frontend** (Next.js 15) - http://localhost:3001 (port 3107 inside the container)
+2. **Backend** (FastAPI + Python) - http://localhost:8000
+3. **Worker** (ARQ) - no published port; does the video processing
+4. **MCP server** - port `SUPOCLIP_MCP_PORT` (default 9100)
+5. **Redis** - port 6379
+6. **PostgreSQL** - not published; reachable only from the other containers
 
 All services are connected via a Docker network and start automatically with proper health checks.
 
