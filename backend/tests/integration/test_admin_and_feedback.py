@@ -3,6 +3,7 @@ import importlib.util
 import pytest
 from sqlalchemy import text
 
+from src.runtime_settings import load_runtime_settings_cache
 from tests.fixtures.factories import create_user
 
 
@@ -122,6 +123,13 @@ async def test_non_secret_setting_is_saved_without_encryption_key(
             )
         )
         await db_session.commit()
+        # The PATCH handler refreshed the module-global settings cache from the
+        # saved row; reload after cleanup so no state leaks into other tests.
+        await load_runtime_settings_cache(db_session)
+        # Release the connection the reload SELECT opened so the fixture
+        # teardown (which runs on the session-scoped event loop) has nothing
+        # left to roll back on this loop's connection.
+        await db_session.rollback()
 
 
 @pytest.mark.asyncio
