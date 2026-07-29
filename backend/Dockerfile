@@ -3,12 +3,22 @@ FROM python:3.11-slim
 
 # Install system dependencies including ffmpeg and unzip (for deno).
 # fonts-noto-color-emoji lets libass render colour emojis in burned captions.
-RUN apt-get update && apt-get install -y \
+# The libva stack enables optional VAAPI hardware encoding (VIDEO_ENCODER=vaapi);
+# intel-media-va-driver-non-free is the iHD driver for modern Intel GPUs (Arc)
+# and requires Debian's non-free component, enabled below. Harmless otherwise.
+RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+        sed -i 's/Components: main/Components: main contrib non-free non-free-firmware/' \
+            /etc/apt/sources.list.d/debian.sources; \
+    fi \
+    && apt-get update && apt-get install -y \
     ffmpeg \
     curl \
     unzip \
     fonts-noto-color-emoji \
     fontconfig \
+    intel-media-va-driver-non-free \
+    libva2 \
+    libva-drm2 \
     && fc-cache -f \
     && rm -rf /var/lib/apt/lists/*
 

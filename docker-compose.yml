@@ -115,6 +115,11 @@ services:
       - DEFAULT_PROCESSING_MODE=${DEFAULT_PROCESSING_MODE:-fast}
       - FAST_MODE_MAX_CLIPS=${FAST_MODE_MAX_CLIPS:-4}
       - FAST_MODE_TRANSCRIPT_MODEL=${FAST_MODE_TRANSCRIPT_MODEL:-universal}
+      # VAAPI hardware encoding also needs the host GPU render nodes, which are
+      # mapped in docker-compose.vaapi.yml (kept separate so hosts without
+      # /dev/dri still start): docker compose -f docker-compose.yml -f docker-compose.vaapi.yml up -d
+      - VIDEO_ENCODER=${VIDEO_ENCODER:-libx264}
+      - VAAPI_DEVICE=${VAAPI_DEVICE:-/dev/dri/renderD128}
       - SELF_HOST=${SELF_HOST:-true}
       - BACKEND_AUTH_SECRET=${BACKEND_AUTH_SECRET}
       - APP_SETTINGS_ENCRYPTION_KEY=${APP_SETTINGS_ENCRYPTION_KEY}
@@ -216,6 +221,11 @@ services:
       - DEFAULT_PROCESSING_MODE=${DEFAULT_PROCESSING_MODE:-fast}
       - FAST_MODE_MAX_CLIPS=${FAST_MODE_MAX_CLIPS:-4}
       - FAST_MODE_TRANSCRIPT_MODEL=${FAST_MODE_TRANSCRIPT_MODEL:-universal}
+      # VAAPI hardware encoding also needs the host GPU render nodes, which are
+      # mapped in docker-compose.vaapi.yml (kept separate so hosts without
+      # /dev/dri still start): docker compose -f docker-compose.yml -f docker-compose.vaapi.yml up -d
+      - VIDEO_ENCODER=${VIDEO_ENCODER:-libx264}
+      - VAAPI_DEVICE=${VAAPI_DEVICE:-/dev/dri/renderD128}
       - SELF_HOST=${SELF_HOST:-true}
       - BACKEND_AUTH_SECRET=${BACKEND_AUTH_SECRET}
       - APP_SETTINGS_ENCRYPTION_KEY=${APP_SETTINGS_ENCRYPTION_KEY}
