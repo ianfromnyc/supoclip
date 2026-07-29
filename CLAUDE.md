@@ -91,7 +91,7 @@ utils/               → Thread pool helpers for blocking operations (async_help
 ### Video Processing Pipeline
 
 1. **Input** → YouTube URL (yt-dlp) or uploaded file
-2. **Transcription** → AssemblyAI word-level timestamps (cached as `.transcript_cache.json`)
+2. **Transcription** → AssemblyAI word-level timestamps (cached as `.transcript_cache.json`); or local WhisperX via `TRANSCRIPTION_PROVIDER=whisperx` (`src/transcription_whisperx.py`, optional `whisperx` uv extra)
 3. **AI Analysis** → Pydantic AI selects 3-7 viral segments (10-45s each) with virality scoring
 4. **Clip Generation** → MoviePy creates 9:16 clips with:
    - Face-centered cropping: MediaPipe → OpenCV DNN → Haar cascade (fallback chain)
@@ -181,7 +181,10 @@ stored (`api_keys` table). The frontend manages keys at `/settings/api-keys`.
 Required in `.env` (root) or `backend/.env`:
 
 ```bash
-ASSEMBLY_AI_API_KEY=...              # Required: video transcription
+ASSEMBLY_AI_API_KEY=...              # Required unless TRANSCRIPTION_PROVIDER=whisperx
+TRANSCRIPTION_PROVIDER=assemblyai    # Or `whisperx` for local transcription (needs the
+                                     # backend's `whisperx` extra; see WHISPERX_* / HF_TOKEN
+                                     # in .env.example)
 LLM=google-gla:gemini-3-flash-preview # Format: provider:model-name
 GOOGLE_API_KEY=...                   # Or OPENAI_API_KEY / ANTHROPIC_API_KEY
 OLLAMA_BASE_URL=http://localhost:11434/v1  # Optional for ollama:* models

@@ -24,7 +24,7 @@ if [ ! -f .env ]; then
     echo "  1. Copy the template: cp .env.example .env"
     echo "  2. Or use the provided .env file"
     echo "  3. Edit .env and add your API keys:"
-    echo "     - ASSEMBLY_AI_API_KEY (required)"
+    echo "     - ASSEMBLY_AI_API_KEY (required unless TRANSCRIPTION_PROVIDER=whisperx)"
     echo "     - OPENAI_API_KEY or GOOGLE_API_KEY or ANTHROPIC_API_KEY"
     echo "     - OR set LLM=ollama:<model> (optional: OLLAMA_BASE_URL, OLLAMA_API_KEY)"
     echo ""
@@ -46,9 +46,11 @@ if [ -n "${LLM:-}" ]; then
     esac
 fi
 
-if [ -z "$ASSEMBLY_AI_API_KEY" ]; then
+# Local WhisperX transcription does not need an AssemblyAI key.
+if [ -z "$ASSEMBLY_AI_API_KEY" ] && [ "${TRANSCRIPTION_PROVIDER:-assemblyai}" != "whisperx" ]; then
     echo -e "${YELLOW}Warning: ASSEMBLY_AI_API_KEY is not set in .env${NC}"
-    echo "Video transcription will not work without this key."
+    echo "Video transcription will not work without this key"
+    echo "(or set TRANSCRIPTION_PROVIDER=whisperx for local transcription)."
     echo ""
 fi
 
