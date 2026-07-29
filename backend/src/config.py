@@ -1,9 +1,12 @@
 from dotenv import load_dotenv
+import logging
 import os
 
 from .runtime_settings import get_cached_setting, setting_prefers_admin
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 _config_override = None
 LOCAL_OLLAMA_BASE_URL = "http://localhost:11434/v1"
@@ -86,6 +89,11 @@ class Config:
             os.getenv("QUEUED_TASK_TIMEOUT_SECONDS", "180")
         )
 
+        # How many videos the ARQ worker processes concurrently. Lower this
+        # when local GPU transcription/encoding shares one card, so jobs do
+        # not fight over VRAM.
+        self.worker_max_jobs = self._get_positive_int_env("WORKER_MAX_JOBS", 4)
+
         self.self_host = self._get_bool_env("SELF_HOST", True)
         self.monetization_enabled = not self.self_host
         self.backend_auth_secret = self._get_optional_env("BACKEND_AUTH_SECRET")
@@ -166,6 +174,23 @@ class Config:
             "APIFY_API_TOKEN": self.apify_api_token,
             "PEXELS_API_KEY": self.pexels_api_key,
         }
+
+    @staticmethod
+    def _get_positive_int_env(name: str, default: int) -> int:
+        value = os.getenv(name)
+        if value is None:
+            return default
+        try:
+            parsed = int(value)
+        except ValueError:
+            logger.warning(
+                "Invalid %s=%r; falling back to %d", name, value, default
+            )
+            return default
+        if parsed < 1:
+            logger.warning("%s=%d is below 1; clamping to 1", name, parsed)
+            return 1
+        return parsed
 
     @staticmethod
     def _get_bool_env(name: str, default: bool) -> bool:
