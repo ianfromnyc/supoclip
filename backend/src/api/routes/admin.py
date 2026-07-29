@@ -18,6 +18,7 @@ from ...runtime_settings import (
     get_runtime_setting_rows,
     load_runtime_settings_cache,
 )
+from ...transcription_whisperx import _import_whisperx
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -173,6 +174,24 @@ async def update_runtime_settings(
         )
         if config_error and "API_KEY is not set" not in config_error:
             raise HTTPException(status_code=400, detail=config_error)
+
+    if "TRANSCRIPTION_PROVIDER" in payload.updates:
+        provider = payload.updates["TRANSCRIPTION_PROVIDER"].strip().lower()
+        if provider and provider not in ("assemblyai", "whisperx"):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "TRANSCRIPTION_PROVIDER must be 'assemblyai' or 'whisperx', "
+                    f"got '{provider}'."
+                ),
+            )
+        if provider == "whisperx":
+            # Fail fast if the optional whisperx extra is missing instead of
+            # letting the first transcription task blow up mid-run.
+            try:
+                _import_whisperx()
+            except RuntimeError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     for setting_key, raw_value in payload.updates.items():
         value = raw_value.strip()

@@ -22,6 +22,52 @@ async def test_admin_route_requires_admin_user(client, db_session, auth_headers)
 
 
 @pytest.mark.asyncio
+async def test_runtime_settings_reject_unknown_transcription_provider(
+    client, db_session, auth_headers
+):
+    await create_user(
+        db_session,
+        user_id="user-1",
+        email="owner@example.com",
+        is_admin=True,
+    )
+    await db_session.commit()
+
+    response = await client.patch(
+        "/admin/runtime-settings",
+        headers=auth_headers,
+        json={"updates": {"TRANSCRIPTION_PROVIDER": "bogus"}},
+    )
+
+    assert response.status_code == 400
+    assert "assemblyai" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_runtime_settings_reject_whisperx_when_extra_not_installed(
+    client, db_session, auth_headers
+):
+    # The test environment installs the backend without the whisperx extra, so
+    # selecting whisperx must fail fast with an actionable message.
+    await create_user(
+        db_session,
+        user_id="user-1",
+        email="owner@example.com",
+        is_admin=True,
+    )
+    await db_session.commit()
+
+    response = await client.patch(
+        "/admin/runtime-settings",
+        headers=auth_headers,
+        json={"updates": {"TRANSCRIPTION_PROVIDER": "whisperx"}},
+    )
+
+    assert response.status_code == 400
+    assert "uv sync --extra whisperx" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
 async def test_non_secret_setting_is_saved_without_encryption_key(
     client, db_session, auth_headers, monkeypatch
 ):
