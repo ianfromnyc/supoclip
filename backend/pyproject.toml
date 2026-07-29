@@ -60,10 +60,21 @@ package = true
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 testpaths = ["tests"]
+# Coverage gate spans the whole src/ package (legacy/launcher entry points
+# omitted below). Measured baseline at gate widening (2026-07-29): 44.36% with
+# 113 passed / 12 skipped. fail-under is set a few points below that as a
+# regression floor — it must pass today with margin, not act as a target.
 addopts = """
---cov=src.auth_headers
---cov=src.services.billing_service
+--cov=src
 --cov-report=term-missing
 --cov-report=html
---cov-fail-under=65
+--cov-fail-under=40
 """
+
+[tool.coverage.run]
+omit = [
+    # Legacy monolithic entry point, superseded by main_refactored.py.
+    "src/main.py",
+    # Thin process launcher for the ARQ worker (arq src.workers.tasks.WorkerSettings).
+    "src/worker_main.py",
+]
