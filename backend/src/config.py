@@ -108,6 +108,9 @@ class Config:
         self.cors_origins = self._get_csv_env(
             "CORS_ORIGINS",
             [
+                # Stock `docker-compose up` publishes the frontend on 3001;
+                # local `next dev` serves it on 3107. Allow both by default.
+                "http://localhost:3001",
                 "http://localhost:3107",
                 "http://sp.localhost:3107",
             ],
@@ -119,7 +122,7 @@ class Config:
             "SES_FROM_EMAIL", "SupoClip <onboarding@example.com>"
         )
         self.app_base_url = (
-            self._get_optional_env("NEXT_PUBLIC_APP_URL") or "http://localhost:3107"
+            self._get_optional_env("NEXT_PUBLIC_APP_URL") or "http://localhost:3001"
         ).rstrip("/")
         self.discord_feedback_webhook_url = self._get_optional_env("DISCORD_FEEDBACK_WEBHOOK_URL")
         self.discord_sales_webhook_url = self._get_optional_env("DISCORD_SALES_WEBHOOK_URL")
