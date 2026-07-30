@@ -45,8 +45,8 @@ source .env
 # Single-sourced so the generation pass below and the "cannot generate anything"
 # safety check cannot drift apart.
 PLACEHOLDER_SECRETS=(
-    "BACKEND_AUTH_SECRET change_me_backend_auth_secret"
-    "BETTER_AUTH_SECRET supoclip_dev_secret_change_in_production change_this_in_production"
+    "BACKEND_AUTH_SECRET change_me_backend_auth_secret replace_this_if_using_hosted_mode replace_me"
+    "BETTER_AUTH_SECRET supoclip_dev_secret_change_in_production change_this_in_production replace_me"
     "APP_SETTINGS_ENCRYPTION_KEY change_me_settings_encryption_secret"
 )
 
