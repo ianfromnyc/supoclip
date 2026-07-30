@@ -30,6 +30,17 @@ Services and their published host ports (all bound to `127.0.0.1`):
 | `postgres` | — | Not published; reachable only on the compose network |
 | `cloudflared` | — | Cloudflare Tunnel ingress; opt-in via `--profile tunnel` / `CLOUDFLARE_TUNNEL_TOKEN` |
 
+`.env` must contain `COMPOSE_PROFILES=cpu-false,vaapi-true` (see `.env.example`)
+or no backend/worker variant starts — the `config-guard` service aborts startup
+with instructions if the switch is misconfigured. Setting `VAAPI_ENABLED=true`
+swaps `backend`/`worker` for `backend-vaapi`/`worker-vaapi`, which map the host
+GPU render nodes (`/dev/dri`) for VAAPI hardware encoding — pair it with
+`VIDEO_ENCODER=vaapi`. In that mode, compose commands must target the `-vaapi`
+service names (`docker-compose logs -f worker-vaapi`); container names
+(`supoclip-backend`, `supoclip-worker`) stay the same. Flipping the switch on a
+running stack needs `docker compose down --remove-orphans` first — a plain
+`up -d` collides with the previous variant's containers.
+
 ### Backend (local)
 
 Uses `uv` (not pip/poetry). Requires Python 3.11+, ffmpeg, running PostgreSQL and Redis.

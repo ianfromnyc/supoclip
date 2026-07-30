@@ -65,6 +65,10 @@ cd supoclip
 Create a `.env` file in the root directory:
 
 ```env
+# Required for Docker: selects the backend/worker variant (see the VAAPI
+# section in .env.example; leave the value as-is)
+COMPOSE_PROFILES=cpu-false,vaapi-true
+
 # Required: Video transcription (not needed with TRANSCRIPTION_PROVIDER=whisperx)
 ASSEMBLY_AI_API_KEY=your_assemblyai_api_key
 
@@ -160,8 +164,15 @@ If you enable DataFast, also verify that:
 
 **Videos stay queued / never process:**
 - Check worker logs: `docker-compose logs -f worker`
+  (with `VAAPI_ENABLED=true` the service is named `worker-vaapi` instead)
 - Ensure Redis is healthy: `docker-compose logs redis`
 - Verify API keys are correct
+
+**No backend/worker starts, or `config-guard` exits with an error:**
+- `.env` must contain `COMPOSE_PROFILES=cpu-false,vaapi-true` and
+  `VAAPI_ENABLED` must be exactly `true` or `false` (see `.env.example`)
+- After changing `VAAPI_ENABLED`, recreate the stack:
+  `docker compose down --remove-orphans && docker compose up -d`
 
 **YouTube titles or duration lookup is failing:**
 - `YOUTUBE_METADATA_PROVIDER=yt_dlp` keeps the old metadata path

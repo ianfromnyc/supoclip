@@ -6,7 +6,7 @@ This guide covers the recommended Docker setup, local development mode, and the 
 
 ### Required software
 
-- Docker Desktop or a Docker Engine installation with Compose support
+- Docker Desktop or a Docker Engine installation with Compose v2.20 or newer (the legacy v1 `docker-compose` binary cannot read this project's compose file)
 - Git
 
 ### Required credentials
@@ -342,6 +342,12 @@ docker-compose logs -f
 docker-compose logs -f backend
 docker-compose logs -f worker
 ```
+
+With `VAAPI_ENABLED=true` in `.env` the backend and worker run as the
+`backend-vaapi` and `worker-vaapi` services, so target those names instead
+(e.g. `docker-compose logs -f worker-vaapi`). The container names
+(`supoclip-backend`, `supoclip-worker`) are the same in both modes, so plain
+`docker logs supoclip-worker` always works.
 
 ### Stop services
 

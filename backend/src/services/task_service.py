@@ -478,7 +478,7 @@ class TaskService:
                 progress=0,
                 progress_message=(
                     "Task timed out while waiting in queue. "
-                    "Ensure the worker service is running and healthy (docker-compose logs -f worker)."
+                    "Ensure the worker service is running and healthy (docker logs supoclip-worker)."
                 ),
             )
             task = await self.task_repo.get_task_by_id(self.db, task_id)
