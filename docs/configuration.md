@@ -30,13 +30,34 @@ In most cases, edit `.env` and then rebuild or restart the stack.
 | Variable | Required | Purpose |
 |---|---|---|
 | `LLM` | Yes | Selects the provider and model, for example `google-gla:gemini-3-flash-preview` |
-| `OPENAI_API_KEY` | If using OpenAI | Required for `openai:*` models |
+| `OPENAI_API_KEY` | If using hosted OpenAI | Required for `openai:*` models on the hosted API; optional when `OPENAI_BASE_URL` points at a keyless endpoint |
+| `OPENAI_BASE_URL` | Optional | Endpoint override for `openai:*` models. Leave unset for the hosted OpenAI API |
+| `OPENAI_SERVICE_TIER` | Optional | Sent as `service_tier` on each request: `auto`, `default`, `flex`, `scale` or `priority`. Unset sends nothing, which OpenAI treats as `auto` |
 | `GOOGLE_API_KEY` | If using Google | Required for `google-gla:*` models |
 | `ANTHROPIC_API_KEY` | If using Anthropic | Required for `anthropic:*` models |
-| `OLLAMA_BASE_URL` | If using Ollama remotely | Base URL for Ollama-compatible endpoints |
-| `OLLAMA_API_KEY` | Optional | Used for hosted Ollama providers such as Ollama Cloud |
+| `OLLAMA_BASE_URL` | Deprecated | Alias of `OPENAI_BASE_URL`, read only by `ollama:*` |
+| `OLLAMA_API_KEY` | Deprecated | Alias of `OPENAI_API_KEY`, read only by `ollama:*` |
 
 The backend can infer a default LLM from whichever API key is present, but setting `LLM` explicitly is safer and easier to debug.
+
+### OpenAI-compatible endpoints
+
+`openai:<model>` is the single path for both hosted OpenAI and any
+OpenAI-compatible server — llama.cpp/llama-swap, vLLM, Ollama's `/v1`,
+OpenRouter, the Hugging Face router, and so on. Point `OPENAI_BASE_URL` at the
+server and set `OPENAI_API_KEY` only if it requires one:
+
+```bash
+LLM=openai:qwen3-coder
+OPENAI_BASE_URL=http://localhost:8080/v1
+```
+
+`LLM=ollama:<model>` still works as a **deprecated** alias for the same path. It
+prefers `OPENAI_BASE_URL`/`OPENAI_API_KEY`, falls back to
+`OLLAMA_BASE_URL`/`OLLAMA_API_KEY`, and finally to `http://localhost:11434/v1`
+(or `http://host.docker.internal:11434/v1` inside Docker). The backend logs a
+deprecation warning when it is used; migrate to `openai:*` with
+`OPENAI_BASE_URL`.
 
 ## Core Application Settings
 

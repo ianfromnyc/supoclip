@@ -51,4 +51,4 @@ PRs should include:
 
 ## Security & Configuration Tips
 - Never commit real secrets; use `.env.example` as the template.
-- Required runtime keys include `ASSEMBLY_AI_API_KEY` and either one hosted LLM provider key (`OPENAI_API_KEY`, `GOOGLE_API_KEY`, or `ANTHROPIC_API_KEY`) or an Ollama model configuration (`LLM=ollama:*`, optional `OLLAMA_BASE_URL`).
+- Required runtime keys include `ASSEMBLY_AI_API_KEY` and either one hosted LLM provider key (`OPENAI_API_KEY`, `GOOGLE_API_KEY`, or `ANTHROPIC_API_KEY`) or an OpenAI-compatible endpoint (`LLM=openai:*` with `OPENAI_BASE_URL`, which usually needs no key). `LLM=ollama:*` plus `OLLAMA_BASE_URL` still works as a deprecated alias of that path.

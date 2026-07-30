@@ -233,8 +233,12 @@ TRANSCRIPTION_PROVIDER=assemblyai    # Or `whisperx` for local transcription (ne
                                      # in .env.example)
 LLM=google-gla:gemini-3-flash-preview # Format: provider:model-name
 GOOGLE_API_KEY=...                   # Or OPENAI_API_KEY / ANTHROPIC_API_KEY
-OLLAMA_BASE_URL=http://localhost:11434/v1  # Optional for ollama:* models
-OLLAMA_API_KEY=...                   # Optional; required for Ollama Cloud
+OPENAI_BASE_URL=http://localhost:8080/v1   # Optional; any OpenAI-compatible endpoint
+                                     # (llama.cpp, vLLM, Ollama /v1, OpenRouter, …).
+                                     # Unset = hosted OpenAI, which needs OPENAI_API_KEY
+OPENAI_SERVICE_TIER=                 # Optional; auto|default|flex|scale|priority
+OLLAMA_BASE_URL=http://localhost:11434/v1  # Deprecated alias of OPENAI_BASE_URL (ollama:* only)
+OLLAMA_API_KEY=...                   # Deprecated alias of OPENAI_API_KEY (ollama:* only)
 
 # Optional
 PEXELS_API_KEY=...                   # B-roll stock footage

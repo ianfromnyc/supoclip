@@ -41,9 +41,9 @@ OPENAI_API_KEY=your_openai_key_here
 # Configure which AI model to use
 LLM=openai:gpt-4
 
-# OR use Ollama locally
-# LLM=ollama:gpt-oss:20b
-# OLLAMA_BASE_URL=http://localhost:11434/v1
+# OR use a local OpenAI-compatible endpoint (llama.cpp, vLLM, Ollama, …)
+# LLM=openai:gpt-oss:20b
+# OPENAI_BASE_URL=http://localhost:11434/v1
 
 # Optional: Amazon SES for waitlist + subscription lifecycle emails
 # Required if you want hosted billing emails when SELF_HOST=false
@@ -98,7 +98,7 @@ docker-compose up -d --build
 | Variable | Description | Where to Get |
 |----------|-------------|--------------|
 | `ASSEMBLY_AI_API_KEY` | Speech-to-text transcription | https://www.assemblyai.com/ |
-| `LLM` | AI model identifier | e.g., `openai:gpt-5.2` or `ollama:gpt-oss:20b` |
+| `LLM` | AI model identifier | e.g., `openai:gpt-5.2`, or `openai:gpt-oss:20b` with `OPENAI_BASE_URL` |
 
 ### Optional Variables
 
@@ -110,8 +110,10 @@ docker-compose up -d --build
 | `DISABLE_SIGN_UP` | `true` | Sign-ups are closed by default on every deployment method, even when the variable is unset; set it explicitly to `false` to let people register |
 | `GOOGLE_API_KEY` | - | For Google Gemini models |
 | `ANTHROPIC_API_KEY` | - | For Claude models |
-| `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | For local/self-hosted Ollama endpoint |
-| `OLLAMA_API_KEY` | - | Optional, required for Ollama Cloud |
+| `OPENAI_BASE_URL` | - | Endpoint override for `openai:*`. Any OpenAI-compatible server; unset means hosted OpenAI |
+| `OPENAI_SERVICE_TIER` | - | `auto`, `default`, `flex`, `scale` or `priority`; sent as `service_tier` on each request |
+| `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | Deprecated alias of `OPENAI_BASE_URL`, read only by `ollama:*` |
+| `OLLAMA_API_KEY` | - | Deprecated alias of `OPENAI_API_KEY`, read only by `ollama:*` |
 | `AWS_REGION` | `us-east-1` | Optional in self-host mode, required for hosted billing/waitlist emails |
 | `AWS_ACCESS_KEY_ID` | - | Optional in self-host mode, required for hosted billing/waitlist emails |
 | `AWS_SECRET_ACCESS_KEY` | - | Optional in self-host mode, required for hosted billing/waitlist emails |
@@ -163,11 +165,15 @@ LLM=google-gla:gemini-3-flash-preview
 LLM=google-gla:gemini-3-pro-preview
 ```
 
-### Ollama
+### OpenAI-compatible endpoints (llama.cpp, vLLM, Ollama, OpenRouter, …)
 ```bash
-LLM=ollama:gpt-oss:20b
-OLLAMA_BASE_URL=http://localhost:11434/v1
+LLM=openai:gpt-oss:20b
+OPENAI_BASE_URL=http://localhost:11434/v1
+# OPENAI_API_KEY only if the endpoint requires one
 ```
+
+`LLM=ollama:*` with `OLLAMA_BASE_URL` still works, but is deprecated — it routes
+through the same OpenAI-compatible client.
 
 ## Troubleshooting
 

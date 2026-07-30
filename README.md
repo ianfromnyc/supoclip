@@ -85,10 +85,11 @@ GOOGLE_API_KEY=your_google_api_key
 # LLM=anthropic:claude-4-sonnet
 # ANTHROPIC_API_KEY=your_anthropic_api_key
 
-# Option D: Ollama (local/self-hosted)
-# LLM=ollama:gpt-oss:20b
-# OLLAMA_BASE_URL=  # Optional; defaults to localhost locally, host.docker.internal in Docker
-# OLLAMA_API_KEY=your_ollama_api_key  # Optional (Ollama Cloud)
+# Option D: any OpenAI-compatible endpoint (llama.cpp, vLLM, Ollama, OpenRouter, …)
+# LLM=openai:gpt-oss:20b
+# OPENAI_BASE_URL=http://localhost:11434/v1  # Your endpoint; use host.docker.internal in Docker
+# OPENAI_API_KEY=  # Only if the endpoint requires one
+# (LLM=ollama:* with OLLAMA_BASE_URL still works, but is deprecated)
 
 # Optional: Auth secret — `./start.sh` generates one for you if this is left empty
 BETTER_AUTH_SECRET=  # or set it yourself: openssl rand -hex 32
@@ -157,9 +158,10 @@ If you enable DataFast, also verify that:
 **Backend fails to start with API key error:**
 - Make sure you've set the correct LLM provider AND its corresponding API key in `.env`
 - Default is `google-gla:gemini-3-flash-preview` which requires `GOOGLE_API_KEY`
-- If using `openai:gpt-5.2`, you MUST set `OPENAI_API_KEY`
-- If using `ollama:*`, run Ollama and optionally set `OLLAMA_BASE_URL`
-  (`http://localhost:11434/v1` for local backend runs, `http://host.docker.internal:11434/v1` for Docker)
+- If using `openai:gpt-5.2` against hosted OpenAI, you MUST set `OPENAI_API_KEY`
+- For a self-hosted OpenAI-compatible endpoint, set `OPENAI_BASE_URL` instead — no key needed
+  unless the endpoint requires one (Ollama: `http://localhost:11434/v1` locally,
+  `http://host.docker.internal:11434/v1` for Docker)
 - Rebuild after changing `.env`: `docker-compose up -d --build`
 
 **Videos stay queued / never process:**

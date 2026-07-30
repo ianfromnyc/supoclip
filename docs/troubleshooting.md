@@ -123,10 +123,12 @@ Verify:
 
 ### Provider mismatch examples
 
-- `LLM=openai:...` requires `OPENAI_API_KEY`
+- `LLM=openai:...` requires `OPENAI_API_KEY`, unless `OPENAI_BASE_URL` points at
+  your own OpenAI-compatible endpoint
 - `LLM=google-gla:...` requires `GOOGLE_API_KEY`
 - `LLM=anthropic:...` requires `ANTHROPIC_API_KEY`
-- `LLM=ollama:...` requires a reachable Ollama endpoint
+- `LLM=ollama:...` (deprecated) requires a reachable endpoint at
+  `OPENAI_BASE_URL`, `OLLAMA_BASE_URL`, or the local Ollama default
 
 ## YouTube Downloads Fail
 
