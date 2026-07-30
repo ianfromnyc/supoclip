@@ -46,7 +46,7 @@ The backend can infer a default LLM from whichever API key is present, but setti
 | `DISABLE_SIGN_UP` | `false` | Prevents creation of new user accounts when set |
 | `NEXT_PUBLIC_LANDING_ONLY_MODE` | `false` | Restricts the UI to the landing page only |
 | `TEMP_DIR` | `/app/uploads` in Docker | Temporary backend working directory for uploads and processing |
-| `CORS_ORIGINS` | `http://localhost:3107,http://sp.localhost:3107` | Allowed browser origins for backend requests, including direct browser video uploads. The built-in default lives in `Config.cors_origins` (`backend/src/config.py`); `.env.example` additionally lists `http://supoclip.localhost:3107` |
+| `CORS_ORIGINS` | `http://localhost:3001,http://127.0.0.1:3001,http://localhost:3107,http://sp.localhost:3107` | Allowed browser origins for backend requests, including direct browser video uploads. Covers both the port Docker publishes (3001, on either loopback host) and the local `next dev` port (3107). The built-in default lives in `Config.cors_origins` (`backend/src/config.py`); `.env.example` additionally lists `http://supoclip.localhost:3107` |
 
 ## Analytics Settings
 
