@@ -185,7 +185,8 @@ The UI opens, but parts of it fail to load or authenticated actions do not work.
 
 - Database not ready
 - Better Auth misconfiguration
-- `DISABLE_SIGN_UP=true`
+- Sign-ups are closed — `DISABLE_SIGN_UP` is set to a truthy value, or is unset
+  (registration is closed by default)
 - Cookies blocked by wrong origin or protocol setup
 
 ### Checks

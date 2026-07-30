@@ -42,11 +42,14 @@ The backend can infer a default LLM from whichever API key is present, but setti
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `BETTER_AUTH_SECRET` | Dev secret | Frontend auth secret; must be changed in non-local environments |
-| `DISABLE_SIGN_UP` | `false` | Prevents creation of new user accounts when set |
+| `BETTER_AUTH_SECRET` | Dev secret | Frontend auth secret. `./start.sh` replaces the `.env.example` placeholder with an `openssl rand -hex 32` value; set it yourself if you run `docker compose` directly |
+| `DISABLE_SIGN_UP` | `true` | Blocks new user registrations. The default is enforced in the frontend code, so sign-ups stay closed on every deployment method — Compose, plain Node, or Vercel — even when the variable is unset. Only an explicit `false`, `0`, or `no` (case-insensitive) opens registration |
+| `FRONTEND_BUILD_TARGET` | `development` | Frontend Dockerfile stage Compose builds. Use `runner` for a public deployment so you ship the standalone production build instead of a Next.js dev server |
+| `NODE_ENV` | `development` | Runtime mode for the `frontend` container. Set to `production` alongside `FRONTEND_BUILD_TARGET=runner` |
 | `NEXT_PUBLIC_LANDING_ONLY_MODE` | `false` | Restricts the UI to the landing page only |
 | `TEMP_DIR` | `/app/uploads` in Docker | Temporary backend working directory for uploads and processing |
 | `CORS_ORIGINS` | `http://localhost:3001,http://127.0.0.1:3001,http://localhost:3107,http://sp.localhost:3107` | Allowed browser origins for backend requests, including direct browser video uploads. Covers both the port Docker publishes (3001, on either loopback host) and the local `next dev` port (3107). The built-in default lives in `Config.cors_origins` (`backend/src/config.py`); `.env.example` additionally lists `http://supoclip.localhost:3107` |
+| `CLOUDFLARE_TUNNEL_TOKEN` | empty | Cloudflare Tunnel connector token. When set, `./start.sh` enables the Compose `tunnel` profile so the optional `cloudflared` service provides public ingress. See [Setup](./setup.md#public-access-with-cloudflare-tunnel-optional) |
 
 ## Analytics Settings
 
@@ -121,7 +124,7 @@ These determine whether the app behaves like an open self-hosted product or a mo
 | Variable | Default | Purpose |
 |---|---|---|
 | `SELF_HOST` | `true` | When `true`, monetization is disabled |
-| `BACKEND_AUTH_SECRET` | unset in practice | Shared secret for trusted frontend-to-backend requests in hosted mode |
+| `BACKEND_AUTH_SECRET` | placeholder in `.env.example` | Shared secret for trusted frontend-to-backend requests. The backend treats the repo's placeholder strings as unconfigured and rejects signed requests with `500`, so it needs a real random value. `./start.sh` generates one |
 | `AUTH_SIGNATURE_TTL_SECONDS` | `300` | Lifetime of backend request signatures |
 | `FREE_PLAN_TASK_LIMIT` | `10` | Hosted-mode free plan generation allowance |
 | `PRO_PLAN_TASK_LIMIT` | `50` | Hosted-mode Pro generation allowance |
@@ -233,9 +236,15 @@ For basic self-hosted use:
 ASSEMBLY_AI_API_KEY=your_key
 LLM=google-gla:gemini-3-flash-preview
 GOOGLE_API_KEY=your_key
-BETTER_AUTH_SECRET=replace_me
 SELF_HOST=true
 ```
+
+`BETTER_AUTH_SECRET`, `BACKEND_AUTH_SECRET`, and `APP_SETTINGS_ENCRYPTION_KEY`
+are omitted on purpose: `./start.sh` generates each one with
+`openssl rand -hex 32` while it is empty or still at the `.env.example`
+placeholder. Set them yourself with the same command if you run `docker compose`
+directly — the placeholders are public, and the backend refuses to authenticate
+signed requests while `BACKEND_AUTH_SECRET` still holds one.
 
 To enable DataFast on a deployed frontend, add:
 
@@ -249,7 +258,6 @@ For hosted monetized use, add at minimum:
 
 ```env
 SELF_HOST=false
-BACKEND_AUTH_SECRET=replace_me
 STRIPE_SECRET_KEY=your_key
 STRIPE_WEBHOOK_SECRET=your_key
 STRIPE_PRO_PRICE_ID=price_xxx

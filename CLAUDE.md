@@ -11,7 +11,7 @@ SupoClip is an open-source alternative to OpusClip — an AI-powered video clipp
 ### Docker (recommended)
 
 ```bash
-docker-compose up -d              # Start all 6 services
+docker-compose up -d              # Start all 6 services (plus optional `cloudflared` under the `tunnel` profile)
 docker-compose up -d --build      # Rebuild after changes
 docker-compose logs -f backend    # Debug backend
 docker-compose logs -f worker     # Debug video processing
@@ -28,6 +28,7 @@ Services and their published host ports (all bound to `127.0.0.1`):
 | `worker` | — | ARQ worker, no published port |
 | `redis` | 6379 | |
 | `postgres` | — | Not published; reachable only on the compose network |
+| `cloudflared` | — | Cloudflare Tunnel ingress; opt-in via `--profile tunnel` / `CLOUDFLARE_TUNNEL_TOKEN` |
 
 ### Backend (local)
 

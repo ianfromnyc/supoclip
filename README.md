@@ -86,8 +86,8 @@ GOOGLE_API_KEY=your_google_api_key
 # OLLAMA_BASE_URL=  # Optional; defaults to localhost locally, host.docker.internal in Docker
 # OLLAMA_API_KEY=your_ollama_api_key  # Optional (Ollama Cloud)
 
-# Optional: Auth secret (change in production)
-BETTER_AUTH_SECRET=change_this_in_production
+# Optional: Auth secret — `./start.sh` generates one for you if this is left empty
+BETTER_AUTH_SECRET=  # or set it yourself: openssl rand -hex 32
 
 # Optional: DataFast analytics
 # Track your deployed domain in DataFast
@@ -111,8 +111,15 @@ BETTER_AUTH_SECRET=change_this_in_production
 ### 2. Start the Services
 
 ```bash
-docker-compose up -d
+./start.sh
 ```
+
+`start.sh` validates your `.env`, generates secure random values for any auth
+secrets still at their defaults, and brings the stack up. If you prefer running
+`docker-compose up -d` directly, set `BACKEND_AUTH_SECRET`,
+`BETTER_AUTH_SECRET`, and `APP_SETTINGS_ENCRYPTION_KEY` to distinct random
+values (`openssl rand -hex 32`) first — Compose alone substitutes publicly
+known defaults for anything left unset.
 
 This starts (all published ports are bound to `127.0.0.1`):
 - **Frontend**: http://localhost:3001
