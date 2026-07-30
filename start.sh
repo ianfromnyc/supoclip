@@ -142,10 +142,17 @@ fi
 if [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
     export COMPOSE_PROFILES="tunnel${COMPOSE_PROFILES:+,$COMPOSE_PROFILES}"
     echo -e "${GREEN}Cloudflare Tunnel enabled (compose profile: tunnel)${NC}"
-    if [[ "${NEXT_PUBLIC_APP_URL:-}" != https://* ]] || [[ "${NEXT_PUBLIC_API_URL:-}" != https://* ]]; then
-        echo -e "${YELLOW}Warning: CLOUDFLARE_TUNNEL_TOKEN is set but NEXT_PUBLIC_APP_URL / NEXT_PUBLIC_API_URL are not https:// URLs${NC}"
+    if [[ "${NEXT_PUBLIC_APP_URL:-}" != https://* ]] || [[ "${NEXT_PUBLIC_API_URL:-}" != https://* ]] \
+        || [[ "${BETTER_AUTH_URL:-}" != https://* ]]; then
+        echo -e "${YELLOW}Warning: CLOUDFLARE_TUNNEL_TOKEN is set but NEXT_PUBLIC_APP_URL / NEXT_PUBLIC_API_URL / BETTER_AUTH_URL are not https:// URLs${NC}"
         echo "Public sign-in and uploads will fail until NEXT_PUBLIC_APP_URL, NEXT_PUBLIC_API_URL,"
         echo "BETTER_AUTH_URL and CORS_ORIGINS point at your tunnel hostnames (see .env.example)."
+    fi
+    # A CORS_ORIGINS list that omits the public app origin blocks every browser
+    # request the tunnel forwards, which looks like a broken backend.
+    if [ -n "${CORS_ORIGINS:-}" ] && [[ "$CORS_ORIGINS" != *"${NEXT_PUBLIC_APP_URL:-}"* ]]; then
+        echo -e "${YELLOW}Warning: CORS_ORIGINS does not include NEXT_PUBLIC_APP_URL${NC}"
+        echo "Add your public app origin to CORS_ORIGINS or browser requests will be rejected."
     fi
     echo ""
 fi
@@ -177,7 +184,7 @@ echo ""
 echo "To stop all services, run:"
 echo "  $DOCKER_COMPOSE down"
 if [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
-    echo "  (tunnel enabled: from a new shell use '$DOCKER_COMPOSE --profile tunnel down' to also stop cloudflared)"
+    echo "  (tunnel enabled: use '$DOCKER_COMPOSE --profile tunnel down' to also stop cloudflared)"
 fi
 echo ""
 echo "Waiting for services to be healthy..."
@@ -193,6 +200,9 @@ if $DOCKER_COMPOSE ps | grep -q "Up"; then
     echo "  1. Open http://localhost:3001 in your browser"
     echo "  2. View logs: $DOCKER_COMPOSE logs -f"
     echo "  3. Stop services: $DOCKER_COMPOSE down"
+    if [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
+        echo "     (tunnel enabled: use '$DOCKER_COMPOSE --profile tunnel down' to also stop cloudflared)"
+    fi
 else
     echo -e "${YELLOW}Services are starting... Check logs if you encounter issues:${NC}"
     echo "  $DOCKER_COMPOSE logs -f"
