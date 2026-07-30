@@ -2,6 +2,7 @@ import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { PrismaClient } from "../generated/prisma";
 import { nextCookies } from "better-auth/next-js";
+import { computeTrustedOrigins } from "./trusted-origins";
 
 const prisma = new PrismaClient();
 
@@ -22,29 +23,11 @@ export function isSignUpDisabled(value: string | undefined): boolean {
 
 const disableSignUp = isSignUpDisabled(process.env.DISABLE_SIGN_UP);
 
-function toOrigin(value?: string) {
-  if (!value) {
-    return null;
-  }
-
-  try {
-    return new URL(value).origin;
-  } catch {
-    return null;
-  }
-}
-
-const trustedOrigins = Array.from(
-  new Set(
-    [
-      toOrigin(process.env.NEXT_PUBLIC_APP_URL),
-      toOrigin(process.env.BETTER_AUTH_URL),
-      "http://localhost:3107",
-      "http://sp.localhost:3107",
-      "http://supoclip.localhost:3107",
-    ].filter((origin): origin is string => Boolean(origin))
-  )
-);
+const trustedOrigins = computeTrustedOrigins({
+  NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+  BETTER_AUTH_URL: process.env.BETTER_AUTH_URL,
+  NODE_ENV: process.env.NODE_ENV,
+});
 
 export const auth = betterAuth({
   database: prismaAdapter(prisma, {

@@ -40,6 +40,8 @@ async function createStripeCustomerForUser(user: {
 
 async function createPortalSession(customerId: string) {
   const stripe = getStripeClient();
+  // Compose always injects NEXT_PUBLIC_APP_URL, so this fallback only serves
+  // the local non-Docker path, where the frontend runs on 3107.
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3107";
   return stripe.billingPortal.sessions.create({
     customer: customerId,

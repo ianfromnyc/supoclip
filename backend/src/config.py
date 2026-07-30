@@ -108,6 +108,12 @@ class Config:
         self.cors_origins = self._get_csv_env(
             "CORS_ORIGINS",
             [
+                # Stock `docker-compose up` publishes the frontend on 3001;
+                # local `next dev` serves it on 3107. Allow both by default.
+                # The compose port binds to 127.0.0.1, and browsers treat that
+                # host as a separate origin from localhost, so list it too.
+                "http://localhost:3001",
+                "http://127.0.0.1:3001",
                 "http://localhost:3107",
                 "http://sp.localhost:3107",
             ],
@@ -118,6 +124,8 @@ class Config:
         self.ses_from_email = os.getenv(
             "SES_FROM_EMAIL", "SupoClip <onboarding@example.com>"
         )
+        # Compose always injects NEXT_PUBLIC_APP_URL, so this fallback only
+        # serves the local non-Docker path, where the frontend runs on 3107.
         self.app_base_url = (
             self._get_optional_env("NEXT_PUBLIC_APP_URL") or "http://localhost:3107"
         ).rstrip("/")
