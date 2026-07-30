@@ -46,7 +46,7 @@ source .env
 # safety check cannot drift apart.
 PLACEHOLDER_SECRETS=(
     "BACKEND_AUTH_SECRET change_me_backend_auth_secret replace_this_if_using_hosted_mode replace_me"
-    "BETTER_AUTH_SECRET supoclip_dev_secret_change_in_production change_this_in_production replace_me"
+    "BETTER_AUTH_SECRET supoclip_dev_secret_change_in_production change_this_in_production replace_this_for_real_use replace_me"
     "APP_SETTINGS_ENCRYPTION_KEY change_me_settings_encryption_secret"
 )
 
@@ -57,18 +57,21 @@ PLACEHOLDER_SECRETS=(
 # SUPOCLIP_URANDOM_SOURCE exists so that fail-safe path can be exercised in tests.
 generate_random_hex() {
     local urandom="${SUPOCLIP_URANDOM_SOURCE:-/dev/urandom}"
+    local hex=""
 
     if command -v openssl > /dev/null 2>&1; then
-        openssl rand -hex 32
-        return
+        hex="$(openssl rand -hex 32)" || hex=""
+    elif [ -r "$urandom" ] && command -v od > /dev/null 2>&1; then
+        hex="$(head -c 32 "$urandom" | od -An -tx1 | tr -d ' \n')" || hex=""
     fi
 
-    if [ -r "$urandom" ] && command -v od > /dev/null 2>&1; then
-        head -c 32 "$urandom" | od -An -tx1 | tr -d ' \n'
-        return
-    fi
-
-    return 1
+    # Never report success with a short or empty result: a truncated random
+    # source or a masked pipeline failure must not become a weak secret.
+    case "$hex" in
+        *[!0-9a-f]*) return 1 ;;
+    esac
+    [ "${#hex}" -eq 64 ] || return 1
+    printf '%s' "$hex"
 }
 
 # True when $1's current value is empty or still one of its documented
