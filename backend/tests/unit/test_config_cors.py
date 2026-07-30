@@ -13,6 +13,15 @@ def test_cors_origins_default_covers_published_docker_and_dev_ports(monkeypatch)
     assert "http://localhost:3107" in origins
 
 
+def test_cors_origins_default_covers_loopback_ip_host(monkeypatch):
+    # The compose port is published on 127.0.0.1, so a user may well browse to
+    # http://127.0.0.1:3001 instead of localhost. Browsers treat that as a
+    # distinct origin, so it needs its own allow-list entry.
+    monkeypatch.delenv("CORS_ORIGINS", raising=False)
+
+    assert "http://127.0.0.1:3001" in Config().cors_origins
+
+
 def test_cors_origins_reads_env_var(monkeypatch):
     monkeypatch.setenv("CORS_ORIGINS", "https://app.example.com,https://example.com")
 

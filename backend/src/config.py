@@ -110,7 +110,10 @@ class Config:
             [
                 # Stock `docker-compose up` publishes the frontend on 3001;
                 # local `next dev` serves it on 3107. Allow both by default.
+                # The compose port binds to 127.0.0.1, and browsers treat that
+                # host as a separate origin from localhost, so list it too.
                 "http://localhost:3001",
+                "http://127.0.0.1:3001",
                 "http://localhost:3107",
                 "http://sp.localhost:3107",
             ],

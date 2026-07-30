@@ -26,8 +26,10 @@ const trustedOrigins = Array.from(
       toOrigin(process.env.NEXT_PUBLIC_APP_URL),
       toOrigin(process.env.BETTER_AUTH_URL),
       // Stock `docker-compose up` publishes the frontend on host port 3001;
-      // local `next dev` serves it on 3107. Both must be trusted.
+      // local `next dev` serves it on 3107. Both must be trusted. The compose
+      // port binds to 127.0.0.1, which browsers treat as its own origin.
       "http://localhost:3001",
+      "http://127.0.0.1:3001",
       "http://localhost:3107",
       "http://sp.localhost:3107",
       "http://supoclip.localhost:3107",

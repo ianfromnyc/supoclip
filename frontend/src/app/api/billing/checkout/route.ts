@@ -66,7 +66,7 @@ export async function POST(request: Request) {
   }
 
   const stripe = getStripeClient();
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3107";
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3001";
 
   let customerId = user?.stripe_customer_id || null;
   if (!customerId) {
