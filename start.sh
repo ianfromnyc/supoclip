@@ -32,6 +32,23 @@ if [ ! -f .env ]; then
     exit 1
 fi
 
+# docker-compose.yml is not tracked in git: it is your own copy of the example,
+# so the optional add-on includes you uncomment survive every `git pull`. Make
+# the copy on first run rather than making people read about it first.
+if [ ! -f docker-compose.yml ]; then
+    if [ ! -f docker-compose.yml.example ]; then
+        echo -e "${RED}Error: neither docker-compose.yml nor docker-compose.yml.example found!${NC}"
+        echo "Run this script from the SupoClip checkout."
+        echo ""
+        exit 1
+    fi
+    cp docker-compose.yml.example docker-compose.yml
+    echo -e "${GREEN}Created docker-compose.yml from docker-compose.yml.example${NC}"
+    echo "Enable optional add-ons (GPU encoding, local transcription, local LLM,"
+    echo "Cloudflare Tunnel) by uncommenting their include lines at the top of it."
+    echo ""
+fi
+
 # Check if required API keys are set
 source .env
 
@@ -251,28 +268,38 @@ else
     exit 1
 fi
 
-# docker-compose.yml needs Compose v2.20+ (profiles with per-dependency
-# `required: false`), which older v2 releases and the legacy v1 binary
-# cannot parse. Non-numeric version output is treated as too old.
+# docker-compose.yml needs Compose v2.24+ for the top-level `include:` key the
+# optional add-ons rely on; older v2 releases and the legacy v1 binary cannot
+# parse it. Non-numeric version output is treated as too old. (Validated on
+# v5.x, which is what current Docker Desktop ships.)
 COMPOSE_VERSION=$($DOCKER_COMPOSE version --short 2>/dev/null || true)
 COMPOSE_VERSION=${COMPOSE_VERSION#v}
 COMPOSE_MAJOR=$(echo "$COMPOSE_VERSION" | cut -d. -f1)
 COMPOSE_MINOR=$(echo "$COMPOSE_VERSION" | cut -d. -f2)
 case "$COMPOSE_MAJOR" in ''|*[!0-9]*) COMPOSE_MAJOR=0 ;; esac
 case "$COMPOSE_MINOR" in ''|*[!0-9]*) COMPOSE_MINOR=0 ;; esac
-if [ "$COMPOSE_MAJOR" -lt 2 ] || { [ "$COMPOSE_MAJOR" -eq 2 ] && [ "$COMPOSE_MINOR" -lt 20 ]; }; then
-    echo -e "${RED}Error: Docker Compose v2.20 or newer is required (found ${COMPOSE_VERSION:-unknown})!${NC}"
+if [ "$COMPOSE_MAJOR" -lt 2 ] || { [ "$COMPOSE_MAJOR" -eq 2 ] && [ "$COMPOSE_MINOR" -lt 24 ]; }; then
+    echo -e "${RED}Error: Docker Compose v2.24 or newer is required (found ${COMPOSE_VERSION:-unknown})!${NC}"
     echo "Update Docker Desktop or the Docker Compose plugin and try again."
     echo ""
     exit 1
 fi
 
-# Enable the Cloudflare Tunnel ingress profile when a token is configured.
-# COMPOSE_PROFILES keeps every compose invocation below (up/ps) profile-aware
-# and works with both `docker compose` and `docker-compose`.
+# Cloudflare Tunnel ingress is opt-in by uncommenting the tunnel.yml include in
+# docker-compose.yml, which this script must not edit for you — it is your file.
+# So when a token is configured, check whether the service is actually part of
+# the stack and say so plainly if it is not.
 if [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
-    export COMPOSE_PROFILES="tunnel${COMPOSE_PROFILES:+,$COMPOSE_PROFILES}"
-    echo -e "${GREEN}Cloudflare Tunnel enabled (compose profile: tunnel)${NC}"
+    if $DOCKER_COMPOSE config --services 2>/dev/null | grep -qx "cloudflared"; then
+        TUNNEL_ENABLED=1
+        echo -e "${GREEN}Cloudflare Tunnel enabled (docker/options/tunnel.yml)${NC}"
+    else
+        TUNNEL_ENABLED=0
+        echo -e "${YELLOW}Warning: CLOUDFLARE_TUNNEL_TOKEN is set but the tunnel add-on is not enabled${NC}"
+        echo "Uncomment this line at the top of docker-compose.yml to start cloudflared:"
+        echo "  - path: docker/options/tunnel.yml"
+        echo "(the 'include:' line above it must be uncommented too)"
+    fi
     if [[ "${NEXT_PUBLIC_APP_URL:-}" != https://* ]] || [[ "${NEXT_PUBLIC_API_URL:-}" != https://* ]] \
         || [[ "${BETTER_AUTH_URL:-}" != https://* ]]; then
         echo -e "${YELLOW}Warning: CLOUDFLARE_TUNNEL_TOKEN is set but NEXT_PUBLIC_APP_URL / NEXT_PUBLIC_API_URL / BETTER_AUTH_URL are not https:// URLs${NC}"
@@ -326,7 +353,7 @@ echo "Services will be available at:"
 echo "  - Frontend:  http://localhost:3001"
 echo "  - Backend:   http://localhost:8000"
 echo "  - API Docs:  http://localhost:8000/docs"
-if [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
+if [ "${TUNNEL_ENABLED:-0}" -eq 1 ]; then
     echo "  - Public:    ${NEXT_PUBLIC_APP_URL:-<set NEXT_PUBLIC_APP_URL>} (via Cloudflare Tunnel)"
 fi
 echo ""
@@ -335,9 +362,6 @@ echo "  $DOCKER_COMPOSE logs -f"
 echo ""
 echo "To stop all services, run:"
 echo "  $DOCKER_COMPOSE down"
-if [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
-    echo "  (tunnel enabled: use '$DOCKER_COMPOSE --profile tunnel down' to also stop cloudflared)"
-fi
 echo ""
 echo "Waiting for services to be healthy..."
 
@@ -352,9 +376,6 @@ if $DOCKER_COMPOSE ps | grep -q "Up"; then
     echo "  1. Open http://localhost:3001 in your browser"
     echo "  2. View logs: $DOCKER_COMPOSE logs -f"
     echo "  3. Stop services: $DOCKER_COMPOSE down"
-    if [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
-        echo "     (tunnel enabled: use '$DOCKER_COMPOSE --profile tunnel down' to also stop cloudflared)"
-    fi
 else
     echo -e "${YELLOW}Services are starting... Check logs if you encounter issues:${NC}"
     echo "  $DOCKER_COMPOSE logs -f"
