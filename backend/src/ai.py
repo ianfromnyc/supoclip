@@ -324,6 +324,10 @@ DEPRECATED_LLM_PROVIDER_ALIASES = {"ollama": "openai"}
 # process instead of on every agent rebuild.
 _deprecated_provider_alias_warned: set[str] = set()
 
+# Values OpenAI accepts for the chat-completions `service_tier` request field.
+# https://platform.openai.com/docs/api-reference/chat/create
+VALID_OPENAI_SERVICE_TIERS = ("auto", "default", "flex", "scale", "priority")
+
 
 def _split_llm_name(model_name: str) -> tuple[str, str | None]:
     if ":" not in model_name:
@@ -375,7 +379,26 @@ def _get_missing_llm_key_error(model_name: str, runtime_config: Config) -> Optio
                 "matching API key."
             )
 
+        service_tier_error = get_openai_service_tier_error(
+            runtime_config.openai_service_tier
+        )
+        if service_tier_error:
+            return service_tier_error
+
     return None
+
+
+def get_openai_service_tier_error(service_tier: str | None) -> Optional[str]:
+    """Reject service tiers OpenAI would not accept, before the first request."""
+    normalized = (service_tier or "").strip().lower()
+    if not normalized or normalized in VALID_OPENAI_SERVICE_TIERS:
+        return None
+
+    return (
+        f"OPENAI_SERVICE_TIER='{service_tier}' is not a valid service tier. "
+        f"Use one of: {', '.join(VALID_OPENAI_SERVICE_TIERS)}, or leave it "
+        "unset to let OpenAI pick."
+    )
 
 
 def _warn_once_about_deprecated_provider_alias(provider: str) -> None:

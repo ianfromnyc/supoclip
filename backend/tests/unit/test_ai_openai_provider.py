@@ -112,6 +112,30 @@ def test_custom_openai_base_url_does_not_require_an_api_key(monkeypatch):
     assert _get_missing_llm_key_error("openai:qwen3-coder", Config()) is None
 
 
+@pytest.mark.parametrize(
+    "tier", ["auto", "default", "flex", "scale", "priority"]
+)
+def test_every_documented_service_tier_is_accepted(monkeypatch, tier):
+    monkeypatch.setenv("LLM", "openai:gpt-5.2")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("OPENAI_SERVICE_TIER", tier)
+
+    assert _get_missing_llm_key_error("openai:gpt-5.2", Config()) is None
+
+
+def test_unknown_service_tier_is_a_config_error(monkeypatch):
+    monkeypatch.setenv("LLM", "openai:gpt-5.2")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("OPENAI_SERVICE_TIER", "turbo")
+
+    error = _get_missing_llm_key_error("openai:gpt-5.2", Config())
+
+    assert error is not None
+    assert "OPENAI_SERVICE_TIER" in error
+    assert "turbo" in error
+    assert "flex" in error
+
+
 def test_hosted_openai_keeps_the_published_endpoint(monkeypatch):
     monkeypatch.setenv("LLM", "openai:gpt-5.2")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")

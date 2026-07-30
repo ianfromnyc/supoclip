@@ -109,6 +109,7 @@ def test_llm_validation_rejects_unsupported_or_incomplete_model_names():
         google_api_key=None,
         openai_api_key=None,
         openai_base_url=None,
+        openai_service_tier=None,
         anthropic_api_key=None,
         ollama_api_key=None,
         resolve_ollama_base_url=lambda: "http://localhost:11434/v1",
