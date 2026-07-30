@@ -34,17 +34,27 @@ fi
 # Check if required API keys are set
 source .env
 
-# Replace any auth secret that is still empty or set to the placeholder shipped
-# in .env.example with a strong random value, so a fresh checkout is never
-# deployed with well-known secrets. Secrets you have already customised are left
-# alone on purpose: rotating APP_SETTINGS_ENCRYPTION_KEY, for example, would
-# make previously encrypted admin settings impossible to decrypt.
+# Replace any auth secret that is still empty or set to one of the placeholders
+# published in our own docs (.env.example, README) with a strong random value, so
+# a fresh checkout is never deployed with well-known secrets. Secrets you have
+# already customised are left alone on purpose: rotating
+# APP_SETTINGS_ENCRYPTION_KEY, for example, would make previously encrypted admin
+# settings impossible to decrypt.
+#
+# Usage: generate_secret_if_placeholder VAR_NAME placeholder [placeholder...]
 generate_secret_if_placeholder() {
-    local var="$1" placeholder="$2" current new
+    local var="$1" current new placeholder is_placeholder=0
+    shift
     current="${!var:-}"
 
-    # Anything other than "empty" or "still the placeholder" is a real secret.
-    if [ -n "$current" ] && [ "$current" != "$placeholder" ]; then
+    # Any value that matches none of the documented placeholders is a real secret.
+    for placeholder in "$@"; do
+        if [ "$current" = "$placeholder" ]; then
+            is_placeholder=1
+            break
+        fi
+    done
+    if [ -n "$current" ] && [ "$is_placeholder" -eq 0 ]; then
         return 0
     fi
 
@@ -52,8 +62,10 @@ generate_secret_if_placeholder() {
 
     # Update the existing assignment in place, or add one if the var is absent.
     # Commented-out lines do not count as an assignment, hence the "^VAR=" anchor.
+    # `sed -i` needs a backup suffix to be portable (BSD/macOS sed requires one),
+    # so write .env.bak and delete it immediately.
     if grep -q "^${var}=" .env; then
-        sed -i "s|^${var}=.*|${var}=${new}|" .env
+        sed -i.bak "s|^${var}=.*|${var}=${new}|" .env && rm -f .env.bak
     else
         printf '%s=%s\n' "$var" "$new" >> .env
     fi
@@ -61,11 +73,22 @@ generate_secret_if_placeholder() {
     # Re-export so the rest of this script sees the new value.
     export "${var}=${new}"
     echo -e "${GREEN}Generated ${var} (stored in .env)${NC}"
+
+    # Replacing the placeholder encryption key (rather than filling in an empty
+    # one) orphans any admin settings that were encrypted under it. The backend
+    # skips rows it cannot decrypt and falls back to .env, so this is recoverable
+    # — but only if the operator knows to re-enter them.
+    if [ "$var" = "APP_SETTINGS_ENCRYPTION_KEY" ] && [ -n "$current" ]; then
+        echo -e "${YELLOW}Note: admin settings previously saved under the old placeholder encryption key${NC}"
+        echo "can no longer be decrypted and will fall back to .env values - re-enter them in the"
+        echo "admin settings UI if needed."
+    fi
 }
 
 if command -v openssl > /dev/null 2>&1; then
     generate_secret_if_placeholder BACKEND_AUTH_SECRET change_me_backend_auth_secret
-    generate_secret_if_placeholder BETTER_AUTH_SECRET supoclip_dev_secret_change_in_production
+    generate_secret_if_placeholder BETTER_AUTH_SECRET \
+        supoclip_dev_secret_change_in_production change_this_in_production
     generate_secret_if_placeholder APP_SETTINGS_ENCRYPTION_KEY change_me_settings_encryption_secret
 else
     echo -e "${YELLOW}Warning: openssl not found, cannot generate missing auth secrets${NC}"
@@ -149,10 +172,31 @@ if [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
         echo "BETTER_AUTH_URL and CORS_ORIGINS point at your tunnel hostnames (see .env.example)."
     fi
     # A CORS_ORIGINS list that omits the public app origin blocks every browser
-    # request the tunnel forwards, which looks like a broken backend.
-    if [ -n "${CORS_ORIGINS:-}" ] && [[ "$CORS_ORIGINS" != *"${NEXT_PUBLIC_APP_URL:-}"* ]]; then
-        echo -e "${YELLOW}Warning: CORS_ORIGINS does not include NEXT_PUBLIC_APP_URL${NC}"
-        echo "Add your public app origin to CORS_ORIGINS or browser requests will be rejected."
+    # request the tunnel forwards, which looks like a broken backend. Compare each
+    # comma-separated entry exactly: a substring test would happily accept a
+    # look-alike origin such as https://app.example.com.evil.
+    if [ -n "${NEXT_PUBLIC_APP_URL:-}" ]; then
+        if [ -z "${CORS_ORIGINS:-}" ]; then
+            echo -e "${YELLOW}Warning: CORS_ORIGINS is not set${NC}"
+            echo "The compose defaults only allow localhost origins, so set CORS_ORIGINS to include"
+            echo "$NEXT_PUBLIC_APP_URL or browser requests through the tunnel will be rejected."
+        else
+            cors_match=0
+            # Split on commas, then strip surrounding whitespace from each entry.
+            IFS=',' read -ra cors_entries <<< "$CORS_ORIGINS"
+            for cors_entry in "${cors_entries[@]}"; do
+                cors_entry="${cors_entry#"${cors_entry%%[![:space:]]*}"}"
+                cors_entry="${cors_entry%"${cors_entry##*[![:space:]]}"}"
+                if [ "$cors_entry" = "$NEXT_PUBLIC_APP_URL" ]; then
+                    cors_match=1
+                    break
+                fi
+            done
+            if [ "$cors_match" -eq 0 ]; then
+                echo -e "${YELLOW}Warning: CORS_ORIGINS does not include NEXT_PUBLIC_APP_URL${NC}"
+                echo "Add your public app origin to CORS_ORIGINS or browser requests will be rejected."
+            fi
+        fi
     fi
     echo ""
 fi
