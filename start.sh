@@ -96,6 +96,20 @@ else
     DOCKER_COMPOSE="docker-compose"
 fi
 
+# Enable the Cloudflare Tunnel ingress profile when a token is configured.
+# COMPOSE_PROFILES keeps every compose invocation below (up/ps) profile-aware
+# and works with both `docker compose` and `docker-compose`.
+if [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
+    export COMPOSE_PROFILES="tunnel${COMPOSE_PROFILES:+,$COMPOSE_PROFILES}"
+    echo -e "${GREEN}Cloudflare Tunnel enabled (compose profile: tunnel)${NC}"
+    if [[ "${NEXT_PUBLIC_APP_URL:-}" != https://* ]] || [[ "${NEXT_PUBLIC_API_URL:-}" != https://* ]]; then
+        echo -e "${YELLOW}Warning: CLOUDFLARE_TUNNEL_TOKEN is set but NEXT_PUBLIC_APP_URL / NEXT_PUBLIC_API_URL are not https:// URLs${NC}"
+        echo "Public sign-in and uploads will fail until NEXT_PUBLIC_APP_URL, NEXT_PUBLIC_API_URL,"
+        echo "BETTER_AUTH_URL and CORS_ORIGINS point at your tunnel hostnames (see .env.example)."
+    fi
+    echo ""
+fi
+
 echo -e "${GREEN}Starting SupoClip...${NC}"
 echo ""
 
@@ -113,12 +127,18 @@ echo "Services will be available at:"
 echo "  - Frontend:  http://localhost:3001"
 echo "  - Backend:   http://localhost:8000"
 echo "  - API Docs:  http://localhost:8000/docs"
+if [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
+    echo "  - Public:    ${NEXT_PUBLIC_APP_URL:-<set NEXT_PUBLIC_APP_URL>} (via Cloudflare Tunnel)"
+fi
 echo ""
 echo "To view logs, run:"
 echo "  $DOCKER_COMPOSE logs -f"
 echo ""
 echo "To stop all services, run:"
 echo "  $DOCKER_COMPOSE down"
+if [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
+    echo "  (tunnel enabled: from a new shell use '$DOCKER_COMPOSE --profile tunnel down' to also stop cloudflared)"
+fi
 echo ""
 echo "Waiting for services to be healthy..."
 
