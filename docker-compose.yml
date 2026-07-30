@@ -22,7 +22,8 @@
 x-backend-service: &backend-service
   build:
     context: ./backend
-    dockerfile: Dockerfile
+    # Resolved relative to the build context, hence the leading `../`.
+    dockerfile: ../docker/backend.Dockerfile
   container_name: supoclip-backend
   platform: linux/amd64
   command: [".venv/bin/uvicorn", "src.main_refactored:app", "--host", "0.0.0.0", "--port", "8000"]
@@ -113,7 +114,8 @@ x-backend-service: &backend-service
 x-worker-service: &worker-service
   build:
     context: ./backend
-    dockerfile: Dockerfile
+    # Resolved relative to the build context, hence the leading `../`.
+    dockerfile: ../docker/backend.Dockerfile
   container_name: supoclip-worker
   platform: linux/amd64
   command: [".venv/bin/arq", "src.workers.tasks.WorkerSettings"]
@@ -223,7 +225,7 @@ services:
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
+      dockerfile: ../docker/frontend.Dockerfile
       target: ${FRONTEND_BUILD_TARGET:-development}
       args:
         - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
@@ -351,7 +353,7 @@ services:
   mcp:
     build:
       context: ./mcp
-      dockerfile: Dockerfile
+      dockerfile: ../docker/mcp.Dockerfile
     container_name: supoclip-mcp
     ports:
       - "127.0.0.1:${SUPOCLIP_MCP_PORT:-9100}:9100"
