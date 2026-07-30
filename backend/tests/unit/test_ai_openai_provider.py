@@ -5,7 +5,7 @@ from pydantic_ai.models.openai import OpenAIChatModel
 
 from src import ai
 from src import config as config_module
-from src.ai import _build_transcript_model
+from src.ai import _build_transcript_model, _get_missing_llm_key_error
 from src.config import Config
 
 
@@ -92,6 +92,24 @@ def test_ollama_alias_logs_a_deprecation_warning_once(monkeypatch, caplog):
     ]
     assert len(deprecation_records) == 1
     assert "openai:" in deprecation_records[0].getMessage()
+
+
+def test_hosted_openai_without_an_api_key_is_a_config_error(monkeypatch):
+    monkeypatch.setenv("LLM", "openai:gpt-5.2")
+
+    error = _get_missing_llm_key_error("openai:gpt-5.2", Config())
+
+    assert error is not None
+    assert "OPENAI_API_KEY" in error
+    # The message must point at the escape hatch for local/self-hosted servers.
+    assert "OPENAI_BASE_URL" in error
+
+
+def test_custom_openai_base_url_does_not_require_an_api_key(monkeypatch):
+    monkeypatch.setenv("LLM", "openai:qwen3-coder")
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://localhost:8080/v1")
+
+    assert _get_missing_llm_key_error("openai:qwen3-coder", Config()) is None
 
 
 def test_hosted_openai_keeps_the_published_endpoint(monkeypatch):

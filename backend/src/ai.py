@@ -346,19 +346,13 @@ def _get_missing_llm_key_error(model_name: str, runtime_config: Config) -> Optio
     if not provider_model_name:
         return (
             "Selected LLM is missing a model name. "
-            "Use the format provider:model, for example ollama:gpt-oss:20b."
+            "Use the format provider:model, for example openai:gpt-5.2."
         )
 
     if provider in {"google", "google-gla"} and not runtime_config.google_api_key:
         return (
             "Selected LLM provider is Google, but GOOGLE_API_KEY is not set. "
-            "Set GOOGLE_API_KEY or set LLM to openai:* / anthropic:* / ollama:* with the matching API key."
-        )
-
-    if provider == "openai" and not runtime_config.openai_api_key:
-        return (
-            "Selected LLM provider is OpenAI, but OPENAI_API_KEY is not set. "
-            "Set OPENAI_API_KEY or choose another provider with a matching API key."
+            "Set GOOGLE_API_KEY or set LLM to openai:* / anthropic:* with the matching API key."
         )
 
     if provider == "anthropic" and not runtime_config.anthropic_api_key:
@@ -367,10 +361,19 @@ def _get_missing_llm_key_error(model_name: str, runtime_config: Config) -> Optio
             "Set ANTHROPIC_API_KEY or choose another provider with a matching API key."
         )
 
-    if provider == "ollama":
-        # Ollama can run locally without an API key. OLLAMA_BASE_URL/OLLAMA_API_KEY
-        # are optional and passed through as environment variables.
-        return None
+    if provider in OPENAI_COMPATIBLE_PROVIDERS:
+        base_url, api_key = _resolve_openai_compatible_endpoint(
+            provider, runtime_config
+        )
+        # A key is only mandatory for hosted OpenAI. Custom endpoints
+        # (llama.cpp, vLLM, Ollama, …) are commonly keyless.
+        if not base_url and not api_key:
+            return (
+                "Selected LLM provider is OpenAI, but OPENAI_API_KEY is not set. "
+                "Set OPENAI_API_KEY, or point OPENAI_BASE_URL at an "
+                "OpenAI-compatible endpoint, or choose another provider with a "
+                "matching API key."
+            )
 
     return None
 

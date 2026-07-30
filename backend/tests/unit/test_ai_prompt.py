@@ -108,7 +108,10 @@ def test_llm_validation_rejects_unsupported_or_incomplete_model_names():
     runtime_config = SimpleNamespace(
         google_api_key=None,
         openai_api_key=None,
+        openai_base_url=None,
         anthropic_api_key=None,
+        ollama_api_key=None,
+        resolve_ollama_base_url=lambda: "http://localhost:11434/v1",
     )
 
     assert "Unsupported LLM provider" in _get_missing_llm_key_error(
