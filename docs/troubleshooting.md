@@ -389,16 +389,20 @@ appears — or Compose refuses to parse the file at all.
 
 - Only the add-on's own line is uncommented; the `include:` line above it is
   still a comment, so the whole block is inert
+- Its `.env.<option>` was never created. Missing scoped env files are skipped
+  silently by design, so the service starts with no configuration at all
 - A typo in the `path:`. Compose has no optional includes, so a file that does
   not exist is a hard parse error rather than something it skips
 - More than one `llama-*.yml` is enabled. They all define the same `llama`
   service, and the last one wins silently
-- The add-on's `.env` pairing is missing, so the service runs but nothing uses
-  it — `whisperx.yml` without `TRANSCRIPTION_PROVIDER=whisperx`, `vaapi.yml`
-  without `VIDEO_ENCODER=vaapi`, a `llama-*.yml` without `OPENAI_BASE_URL`
+- A setting was put in the wrong file. `VIDEO_ENCODER`, `TRANSCRIPTION_PROVIDER`,
+  the `WHISPERX_*` set, `HF_TOKEN` and `TUNNEL_TOKEN` are read only from their
+  `.env.<option>`; `LLM` and `OPENAI_BASE_URL` are read only from `.env`
 
 ### Fixes
 
+- Run `./start.sh`, which checks both halves of every add-on and names the
+  missing one
 - List what Compose actually resolved:
 
 ```bash
@@ -411,6 +415,16 @@ docker compose config --services
 ```bash
 docker compose config | grep -A3 devices
 ```
+
+- Confirm a scoped setting actually reached the container:
+
+```bash
+docker compose config | grep TRANSCRIPTION_PROVIDER
+```
+
+  Nothing back means `.env.whisperx` is missing or does not define it. Note that
+  `environment:` in `docker-compose.yml` outranks any env file, so re-adding a
+  migrated variable there would shadow the scoped file rather than help.
 
 - After commenting an include back out, tear the service down:
 

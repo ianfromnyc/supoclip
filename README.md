@@ -139,16 +139,21 @@ This starts (all published ports are bound to `127.0.0.1`):
 
 ### Optional add-ons
 
-Extra services live in `docker/options/` and are off by default. To enable one,
-uncomment its line — and the `include:` line above it — at the top of your
-`docker-compose.yml`, then run `docker compose up -d` again:
+Extra services live in `docker/options/` and are off by default. Each one is two
+steps — uncomment its line (and the `include:` line above it) at the top of your
+`docker-compose.yml`, then copy its settings file — followed by
+`docker compose up -d`:
 
-| Add-on | What it does | Pair it with, in `.env` |
-|--------|--------------|-------------------------|
-| `vaapi.yml` | Intel/AMD GPU video encoding | `VIDEO_ENCODER=vaapi` |
-| `whisperx.yml` | Local transcription, no AssemblyAI account | `TRANSCRIPTION_PROVIDER=whisperx` (+ `HF_TOKEN` for speaker labels) |
-| `tunnel.yml` | Public ingress via Cloudflare Tunnel | `CLOUDFLARE_TUNNEL_TOKEN` |
-| `llama-*.yml` | Local LLM via llama.cpp — uncomment exactly ONE variant matching your hardware | `LLM=openai:local` and `OPENAI_BASE_URL=http://llama:8080/v1` |
+| Add-on | What it does | Its settings |
+|--------|--------------|--------------|
+| `vaapi.yml` | Intel/AMD GPU video encoding | `cp .env.vaapi.example .env.vaapi` |
+| `whisperx.yml` | Local transcription, no AssemblyAI account | `cp .env.whisperx.example .env.whisperx` |
+| `tunnel.yml` | Public ingress via Cloudflare Tunnel | `cp .env.tunnel.example .env.tunnel` |
+| `llama-*.yml` | Local LLM via llama.cpp — uncomment exactly ONE variant matching your hardware | `cp .env.llama.example .env.llama`, plus `LLM=openai:local` and `OPENAI_BASE_URL=http://llama:8080/v1` in `.env` |
+
+Every `.env.<option>` is git-ignored and holds only that add-on's configuration,
+so it is short enough to read in full — and deleting it turns the add-on off.
+`./start.sh` warns if an add-on is enabled without its file, or vice versa.
 
 Details in [docs/setup.md](docs/setup.md).
 
@@ -193,11 +198,22 @@ If you enable DataFast, also verify that:
 - Make your own copy first: `cp docker-compose.yml.example docker-compose.yml`
   (or just run `./start.sh`, which does it for you)
 
-**An add-on you enabled is not running:**
+**An add-on you enabled is not running, or is running unconfigured:**
 - Both the `include:` line and the add-on's own line must be uncommented in
   `docker-compose.yml`; check with `docker compose config --services`
+- Its `.env.<option>` must exist too — `cp .env.<option>.example .env.<option>`.
+  Missing scoped files are skipped silently by design, so the service comes up
+  with no configuration at all
 - A typo in an include path fails the parse outright — Compose has no way to
   skip a missing file
+
+**A setting in `.env` seems to be ignored:**
+- Add-on settings moved into `.env.<option>` files, and the compose file no
+  longer passes the old names through. That covers `VIDEO_ENCODER`,
+  `VAAPI_DEVICE`, `TRANSCRIPTION_PROVIDER`, every `WHISPERX_*`, `HF_TOKEN`, and
+  `CLOUDFLARE_TUNNEL_TOKEN`
+- The reverse also holds: `LLM` and `OPENAI_BASE_URL` must be in `.env`, not
+  `.env.llama`, because `environment:` entries outrank any env file
 
 **Upgrading from the old profile-based setup:**
 - Delete `COMPOSE_PROFILES` and `VAAPI_ENABLED` from `.env` — both are gone
@@ -205,6 +221,8 @@ If you enable DataFast, also verify that:
   `backend-vaapi`/`worker-vaapi`/`config-guard` containers
 - `cp docker-compose.yml.example docker-compose.yml` and re-enable what you
   used by uncommenting its include
+- Move each add-on's settings out of `.env` and into its `.env.<option>` (see
+  the list above), copying the matching `.example` as a starting point
 
 **YouTube titles or duration lookup is failing:**
 - `YOUTUBE_METADATA_PROVIDER=yt_dlp` keeps the old metadata path

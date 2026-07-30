@@ -107,10 +107,20 @@ docker-compose up -d --build
 ## Optional Add-ons
 
 GPU video encoding, local transcription, a local LLM, and Cloudflare Tunnel
-ingress each live in their own file under `docker/options/`. Turn one on by
-uncommenting its line — and the `include:` line above it — at the top of your
-`docker-compose.yml`, then run `docker-compose up -d` again. Each also needs a
-matching setting in `.env`; see [docs/setup.md](docs/setup.md#optional-add-ons).
+ingress each live in their own file under `docker/options/`. Turning one on
+takes two steps:
+
+```bash
+# 1. Uncomment its line — and the `include:` line above it — at the top of
+#    docker-compose.yml, then:
+cp .env.whisperx.example .env.whisperx   # or .env.vaapi / .env.tunnel / .env.llama
+docker-compose up -d
+```
+
+Each add-on's settings live entirely in its own `.env.<option>`, so the file is
+short enough to read in full, and deleting it turns the add-on off. `./start.sh`
+warns if you do one step without the other. See
+[docs/setup.md](docs/setup.md#optional-add-ons).
 
 ## Environment Configuration
 
@@ -273,8 +283,9 @@ For production use:
    `NODE_ENV=production` (Compose otherwise ships a Next.js dev server)
 3. Use strong database passwords
 4. Enable HTTPS with a reverse proxy (nginx/Caddy) or Cloudflare Tunnel
-   - For the tunnel, set `CLOUDFLARE_TUNNEL_TOKEN` in `.env` and follow
-     "Public access with Cloudflare Tunnel" in `docs/setup.md`
+   - For the tunnel, enable the `tunnel.yml` add-on and put your connector
+     token in `.env.tunnel` as `TUNNEL_TOKEN`; follow "Public access with
+     Cloudflare Tunnel" in `docs/setup.md`
 5. Leave sign-ups closed (the default) unless you want anyone to register
 6. Set up persistent volumes for data
 7. Configure backup strategies

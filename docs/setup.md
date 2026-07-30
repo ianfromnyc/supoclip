@@ -53,6 +53,10 @@ where you turn optional add-ons on (see [Optional add-ons](#optional-add-ons)),
 and keeping it out of version control means your choices are never disturbed by
 a `git pull`. `./start.sh` makes the compose copy for you if it is missing.
 
+Optional add-ons each add a third copy of the same shape,
+`cp .env.<option>.example .env.<option>` — but only for the ones you enable, so
+skip them for now.
+
 Then edit `.env` and set at least:
 
 ```env
@@ -148,16 +152,28 @@ Anything that only some deployments need lives in its own compose file under
 #   …
 ```
 
-To enable one, uncomment its line **and** the `include:` line above it, then
-`docker compose up -d`. To disable it, comment the line back out and run
-`docker compose up -d --remove-orphans` so the service is torn down.
+Enabling one takes two steps. First uncomment its line **and** the `include:`
+line above it. Then copy its settings file:
 
-Two rules worth internalising:
+```bash
+cp .env.vaapi.example .env.vaapi          # or .env.whisperx / .env.tunnel / .env.llama
+```
 
+Then `docker compose up -d`. To disable it, comment the line back out and run
+`docker compose up -d --remove-orphans` so the service is torn down; delete the
+`.env.<option>` too, or `./start.sh` will point out the mismatch.
+
+Rules worth internalising:
+
+- **Both halves or neither.** An include with no settings file starts an
+  unconfigured service; a settings file with no include configures something
+  that is not running. `./start.sh` warns about either.
 - **Uncomment exactly one `llama-*.yml`.** They all define the same `llama`
-  service, one per hardware backend.
-- **A wrong path is fatal.** Compose has no optional includes: a `path` that
-  does not exist stops the whole stack from parsing, rather than being skipped.
+  service, one per hardware backend, and share one `.env.llama`.
+- **A wrong include path is fatal.** Compose has no optional includes: a `path`
+  that does not exist stops the whole stack from parsing. A missing
+  `.env.<option>` is the opposite — silently skipped, which is what lets the
+  base stack ignore add-ons you have not enabled.
 
 Check what you actually enabled with:
 
@@ -165,16 +181,37 @@ Check what you actually enabled with:
 docker compose config --services
 ```
 
-Each add-on is paired with settings in `.env` — enabling the include alone is
-rarely enough.
+### Which file does a setting go in?
+
+| | |
+|---|---|
+| `.env` | Stack-level values Compose interpolates into `docker-compose.yml` (host ports, build targets, `LLAMA_MODELS_DIR`), plus anything shared across add-ons: API keys, auth secrets, public URLs |
+| `.env.<option>` | That add-on's runtime configuration, passed straight into its containers |
+
+This is not a style preference, it is forced by how Compose resolves variables:
+
+- Compose expands `${...}` only from the root `.env`, never from a scoped file.
+  So a scoped file cannot feed an interpolation — which is why each one uses the
+  target image's own variable names (`ASR_MODEL`, `TUNNEL_TOKEN`, `LLAMA_ARG_*`)
+  rather than ours.
+- An `environment:` entry in `docker-compose.yml` always beats an `env_file`
+  value — even when it interpolates to an empty string. So a variable is owned
+  by `.env` or by a scoped file, never both, and the compose file deliberately
+  no longer mentions the ones that moved.
+
+The one place this bites: `LLM` and `OPENAI_BASE_URL` stay in `.env` even for
+the llama add-on. They are core settings every provider uses, they reach the
+backend through `environment:`, and that outranks `.env.llama`.
 
 ### `vaapi.yml` — GPU video encoding
 
 Maps the host's `/dev/dri` render nodes into `backend` and `worker` so ffmpeg
-can encode on an Intel or AMD GPU. Pair with `VIDEO_ENCODER=vaapi`, and set
-`VAAPI_DEVICE` if the host has more than one GPU (`ls -l /dev/dri/by-path`
-shows which node is which). A failed hardware encode falls back to libx264 with
-a warning.
+can encode on an Intel or AMD GPU.
+
+`.env.vaapi` holds both settings: `VIDEO_ENCODER=vaapi` (the include only hands
+over the GPU, it does not switch the encoder) and `VAAPI_DEVICE`, which matters
+when the host has more than one GPU — `ls -l /dev/dri/by-path` shows which node
+is which. A failed hardware encode falls back to libx264 with a warning.
 
 The device mapping is a separate switch from the encoder because a `devices:`
 entry fails container creation outright on hosts without `/dev/dri`.
@@ -183,20 +220,26 @@ entry fails container creation outright on hosts without `/dev/dri`.
 
 Runs [whisper-asr-webservice](https://ahmetoner.com/whisper-asr-webservice/)
 with `ASR_ENGINE=whisperx`, and the backend posts media to it instead of using
-AssemblyAI. Pair with `TRANSCRIPTION_PROVIDER=whisperx`; `WHISPERX_API_URL`
-already defaults to the service's compose hostname.
+AssemblyAI.
+
+`.env.whisperx` carries the whole switch, which is why forgetting it leaves you
+quietly on AssemblyAI rather than half-enabled: `TRANSCRIPTION_PROVIDER` and
+`WHISPERX_API_URL` for the backend and worker, `ASR_MODEL` and `HF_TOKEN` for
+the service itself. The file is read by all three containers.
 
 - Speaker labels need `HF_TOKEN` — a Hugging Face token that has accepted the
   pyannote model licences. Without one, transcription still works, just without
   "Speaker A/B" attribution.
 - The model is downloaded on first use into a named volume and can be several
-  GB. Expect the first request to take a long time, and `WHISPERX_MODEL=small`
-  to be dramatically faster than the `large-v3` default on a CPU-only host.
+  GB. Expect the first request to take a long time, and `ASR_MODEL=small` to be
+  dramatically faster than the `large-v3` default on a CPU-only host.
 - On an NVIDIA host, switch the image to `:latest-gpu` and add `gpus: all`.
 
 Running SupoClip directly on the host rather than in Docker? Install the
-backend's optional extra (`cd backend && uv sync --extra whisperx`) and leave
-`WHISPERX_API_URL` empty; WhisperX then runs in-process.
+backend's optional extra (`cd backend && uv sync --extra whisperx`) and set the
+`WHISPERX_*` variables in `.env` with `WHISPERX_API_URL` left empty; WhisperX
+then runs in-process. (`config.py` reads plain environment variables — the
+scoped files are a Compose mechanism.)
 
 ### `llama-*.yml` — local LLM
 
@@ -212,19 +255,33 @@ matching your hardware:
 | `llama-sycl.yml` | `…:server-intel` | Intel Arc / Xe (oneAPI SYCL) |
 | `llama-vulkan.yml` | `…:server-vulkan` | Any Vulkan driver |
 
-Supply the model yourself — put a `.gguf` file in `./models` (or point
-`LLAMA_MODELS_DIR` elsewhere), then in `.env`:
+All five share one `.env.llama`. Supply the model yourself — put a `.gguf` file
+in `./models` (or point `LLAMA_MODELS_DIR` elsewhere) — and configure the
+server with llama.cpp's own variables in `.env.llama`:
 
 ```env
-LLAMA_MODEL=your-model.gguf
-LLAMA_ARGS=-ngl 99 -c 8192       # GPU offload and context size; omit for CPU
+LLAMA_ARG_MODEL=/models/your-model.gguf
+LLAMA_ARG_N_GPU_LAYERS=99       # offload onto the GPU; drop this line for CPU
+LLAMA_ARG_CTX_SIZE=8192         # transcripts are long, the 4096 default is tight
+```
+
+The services pass no command-line arguments at all, deliberately: llama-server
+lets a flag override the matching environment variable, so any argument in the
+compose file would silently ignore what you put here.
+
+The other half of the pairing goes in `.env`, because Compose feeds it to the
+backend through `environment:`, which outranks any env file:
+
+```env
 LLM=openai:local
 OPENAI_BASE_URL=http://llama:8080/v1
 ```
 
-llama.cpp's own web UI is published on `127.0.0.1:9292` (`LLAMA_PORT`) for
-poking at it directly. This is a convenience scaffold rather than a tuned
-deployment; expect to adjust the flags for your model and card.
+The model name after `openai:` is arbitrary — llama.cpp serves whichever model
+you loaded. Its own web UI is published on `127.0.0.1:9292` (`LLAMA_PORT`, a
+host-level setting and therefore in `.env`) for poking at directly. This is a
+convenience scaffold rather than a tuned deployment; expect to adjust the flags
+for your model and card.
 
 ### `tunnel.yml` — public ingress
 
@@ -246,10 +303,22 @@ with Compose profiles. If you are coming from one of those:
 4. Re-enable what you were using by uncommenting the matching include:
    `VAAPI_ENABLED=true` becomes `docker/options/vaapi.yml`, and the `tunnel`
    profile becomes `docker/options/tunnel.yml`.
-5. `docker compose up -d --build`.
+5. Move each add-on's settings out of `.env` and into its own file. Copy the
+   example first, then carry your values across:
 
-Your `.env` is otherwise unchanged, and the container names
-(`supoclip-backend`, `supoclip-worker`) are the same as before.
+   | Was in `.env` | Now lives in |
+   |---|---|
+   | `VIDEO_ENCODER`, `VAAPI_DEVICE` | `.env.vaapi` |
+   | `TRANSCRIPTION_PROVIDER`, `WHISPERX_*`, `HF_TOKEN` | `.env.whisperx` |
+   | `CLOUDFLARE_TUNNEL_TOKEN` | `.env.tunnel`, renamed to `TUNNEL_TOKEN` |
+
+   Left in `.env` these are now ignored — the compose file no longer passes
+   them through, so this step is not optional.
+6. `docker compose up -d --build`.
+
+The rest of your `.env` is unchanged, and the container names
+(`supoclip-backend`, `supoclip-worker`) are the same as before. `./start.sh`
+will tell you if an add-on is enabled without its settings file.
 
 ## First-Run Checklist
 
@@ -381,11 +450,26 @@ limit is your Cloudflare plan's, not SupoClip's. Larger files still work from
 the host itself via `http://localhost:3001`, or use YouTube URLs, which the
 backend downloads server-side without passing through the tunnel.
 
-### 2. Add the tunnel settings to `.env`
+### 2. Add the tunnel settings
+
+The connector token goes in its own file, under cloudflared's own variable name:
+
+```bash
+cp .env.tunnel.example .env.tunnel
+```
 
 ```env
-CLOUDFLARE_TUNNEL_TOKEN=your_tunnel_token
+# .env.tunnel
+TUNNEL_TOKEN=your_tunnel_token
+```
 
+Keeping it there rather than in `.env` means the one file holding your ingress
+credential is also the file you delete to stop publishing the app.
+
+The rest stays in `.env`, because the frontend bakes these into its image at
+build time and the backend needs the origin allow-listed:
+
+```env
 NEXT_PUBLIC_APP_URL=https://app.example.com
 NEXT_PUBLIC_API_URL=https://api.example.com
 BETTER_AUTH_URL=https://app.example.com
@@ -428,11 +512,11 @@ Then:
 ```
 
 `./start.sh` cannot do the uncommenting for you — `docker-compose.yml` is your
-file, not the repo's — but it does check: with `CLOUDFLARE_TUNNEL_TOKEN` set
-and no `cloudflared` service in the stack, it tells you exactly which line to
-uncomment. It also warns if `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_API_URL`, or
-`BETTER_AUTH_URL` are not `https://` URLs, or if `CORS_ORIGINS` does not
-include `NEXT_PUBLIC_APP_URL`.
+file, not the repo's — but it does check both halves: an enabled add-on with no
+`.env.tunnel`, or a `.env.tunnel` with the include still commented out, each
+gets a warning naming the exact fix. It also warns if `NEXT_PUBLIC_APP_URL`,
+`NEXT_PUBLIC_API_URL`, or `BETTER_AUTH_URL` are not `https://` URLs, or if
+`CORS_ORIGINS` does not include `NEXT_PUBLIC_APP_URL`.
 
 Manual equivalent:
 
@@ -457,9 +541,9 @@ docker compose logs cloudflared
 - Setting `BETTER_AUTH_URL` to an `https://` origin means signing in through
   `http://localhost:3001` no longer issues working cookies. That is the expected
   trade-off; use the tunnel hostname instead.
-- Enabling the include with an empty or invalid `CLOUDFLARE_TUNNEL_TOKEN`
-  leaves `cloudflared` crash-looping, because the service restarts
-  `unless-stopped`. Check `docker compose logs cloudflared`.
+- Enabling the include with a missing `.env.tunnel`, or an empty or invalid
+  `TUNNEL_TOKEN` inside it, leaves `cloudflared` crash-looping, because the
+  service restarts `unless-stopped`. Check `docker compose logs cloudflared`.
 - To stop exposing the app, comment the include back out and run
   `docker compose up -d --remove-orphans`. A plain `docker compose down` stops
   `cloudflared` along with everything else, but leaves the include in place, so
