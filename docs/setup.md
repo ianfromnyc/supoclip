@@ -245,6 +245,14 @@ host's `127.0.0.1:3001` / `127.0.0.1:8000` published ports. The API hostname is
 required because the browser talks to the backend directly for video uploads
 and caption templates.
 
+Note that Cloudflare caps proxied request bodies well below SupoClip's own
+1 GB upload limit — 100 MB on Free and Pro plans (more on Business/Enterprise).
+Uploads larger than your plan's cap fail at Cloudflare's edge with HTTP 413
+before ever reaching the backend, so through the tunnel the practical upload
+limit is your Cloudflare plan's, not SupoClip's. Larger files still work from
+the host itself via `http://localhost:3001`, or use YouTube URLs, which the
+backend downloads server-side without passing through the tunnel.
+
 ### 2. Add the tunnel settings to `.env`
 
 ```env
