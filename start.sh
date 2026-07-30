@@ -34,6 +34,46 @@ fi
 # Check if required API keys are set
 source .env
 
+# Replace any auth secret that is still empty or set to the placeholder shipped
+# in .env.example with a strong random value, so a fresh checkout is never
+# deployed with well-known secrets. Secrets you have already customised are left
+# alone on purpose: rotating APP_SETTINGS_ENCRYPTION_KEY, for example, would
+# make previously encrypted admin settings impossible to decrypt.
+generate_secret_if_placeholder() {
+    local var="$1" placeholder="$2" current new
+    current="${!var:-}"
+
+    # Anything other than "empty" or "still the placeholder" is a real secret.
+    if [ -n "$current" ] && [ "$current" != "$placeholder" ]; then
+        return 0
+    fi
+
+    new="$(openssl rand -hex 32)"
+
+    # Update the existing assignment in place, or add one if the var is absent.
+    # Commented-out lines do not count as an assignment, hence the "^VAR=" anchor.
+    if grep -q "^${var}=" .env; then
+        sed -i "s|^${var}=.*|${var}=${new}|" .env
+    else
+        printf '%s=%s\n' "$var" "$new" >> .env
+    fi
+
+    # Re-export so the rest of this script sees the new value.
+    export "${var}=${new}"
+    echo -e "${GREEN}Generated ${var} (stored in .env)${NC}"
+}
+
+if command -v openssl > /dev/null 2>&1; then
+    generate_secret_if_placeholder BACKEND_AUTH_SECRET change_me_backend_auth_secret
+    generate_secret_if_placeholder BETTER_AUTH_SECRET supoclip_dev_secret_change_in_production
+    generate_secret_if_placeholder APP_SETTINGS_ENCRYPTION_KEY change_me_settings_encryption_secret
+else
+    echo -e "${YELLOW}Warning: openssl not found, cannot generate missing auth secrets${NC}"
+    echo "Set BACKEND_AUTH_SECRET, BETTER_AUTH_SECRET and APP_SETTINGS_ENCRYPTION_KEY"
+    echo "in .env to long random values yourself."
+    echo ""
+fi
+
 if [ -n "${LLM:-}" ]; then
     case "$LLM" in
         google:*|google-gla:*|openai:*|anthropic:*|ollama:*)
