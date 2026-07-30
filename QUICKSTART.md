@@ -65,6 +65,9 @@ LLM=openai:gpt-4
 - **Backend API**: http://localhost:8000
 - **API Documentation**: http://localhost:8000/docs
 
+Sign-ups are disabled by default. To create your first account, set
+`DISABLE_SIGN_UP=false` in `.env`, restart, register, and set it back to `true`.
+
 ## Manual Docker Commands
 
 If you prefer to use Docker commands directly:
@@ -96,7 +99,8 @@ docker-compose up -d --build
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BETTER_AUTH_SECRET` | dev secret | Auth secret (change in production!) |
+| `BETTER_AUTH_SECRET` | dev secret | Auth secret. `./start.sh` generates a random one for you |
+| `DISABLE_SIGN_UP` | `true` | Sign-ups are closed by default; set to `false` to let people register |
 | `GOOGLE_API_KEY` | - | For Google Gemini models |
 | `ANTHROPIC_API_KEY` | - | For Claude models |
 | `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | For local/self-hosted Ollama endpoint |
@@ -112,7 +116,7 @@ If you enable hosted monetization with `SELF_HOST=false`, set these as well:
 
 | Variable | Description |
 |----------|-------------|
-| `BACKEND_AUTH_SECRET` | Shared secret used by frontend API routes to call the backend |
+| `BACKEND_AUTH_SECRET` | Shared secret used by frontend API routes to call the backend. Must be a real random value — the backend rejects the placeholders shipped in `.env.example`. `./start.sh` generates it |
 | `STRIPE_SECRET_KEY` | Stripe server-side API key |
 | `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret |
 | `STRIPE_PRO_PRICE_ID` | Stripe price ID for the $10 Pro subscription |
@@ -212,25 +216,33 @@ All services are connected via a Docker network and start automatically with pro
 ## What Happens When You Run `./start.sh`?
 
 1. Checks if `.env` file exists with required API keys
-2. Verifies Docker is running
-3. Builds Docker images (first time: ~5-10 minutes)
-4. Starts PostgreSQL and waits for it to be healthy
-5. Starts Redis cache
-6. Starts backend API server
-7. Starts frontend web server
-8. Displays URLs for accessing the application
+2. Generates random auth secrets into `.env` if they are still placeholders
+3. Verifies Docker is running
+4. Builds Docker images (first time: ~5-10 minutes)
+5. Starts PostgreSQL and waits for it to be healthy
+6. Starts Redis cache
+7. Starts backend API server
+8. Starts frontend web server
+9. Displays URLs for accessing the application
 
 ## Production Deployment
 
 For production use:
 
-1. Change `BETTER_AUTH_SECRET` to a secure random string
-2. Use strong database passwords
-3. Enable HTTPS with a reverse proxy (nginx/Caddy) or Cloudflare Tunnel
+1. Confirm the auth secrets are real random values. `./start.sh` fills
+   `BETTER_AUTH_SECRET`, `BACKEND_AUTH_SECRET`, and
+   `APP_SETTINGS_ENCRYPTION_KEY` with `openssl rand -hex 32` while they sit at
+   their `.env.example` placeholders; set them by hand if you use
+   `docker compose` directly
+2. Build the production frontend: `FRONTEND_BUILD_TARGET=runner` and
+   `NODE_ENV=production` (Compose otherwise ships a Next.js dev server)
+3. Use strong database passwords
+4. Enable HTTPS with a reverse proxy (nginx/Caddy) or Cloudflare Tunnel
    - For the tunnel, set `CLOUDFLARE_TUNNEL_TOKEN` in `.env` and follow
      "Public access with Cloudflare Tunnel" in `docs/setup.md`
-4. Set up persistent volumes for data
-5. Configure backup strategies
+5. Keep `DISABLE_SIGN_UP=true` unless you want anyone to register
+6. Set up persistent volumes for data
+7. Configure backup strategies
 
 ## Next Steps
 
