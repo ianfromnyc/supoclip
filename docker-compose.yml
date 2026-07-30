@@ -197,10 +197,15 @@ services:
       - -c
       - |
         case "$$VAAPI_ENABLED" in
-          true)  needed=vaapi-true ;;
-          false) needed=cpu-false ;;
+          true)  needed=vaapi-true;  forbidden=cpu-true ;;
+          false) needed=cpu-false;   forbidden=vaapi-false ;;
           *)
             echo "config-guard: VAAPI_ENABLED must be 'true' or 'false', got '$$VAAPI_ENABLED' — no backend/worker variant is selected." >&2
+            exit 1 ;;
+        esac
+        case ",$$COMPOSE_PROFILES," in
+          *",$$forbidden,"*)
+            echo "config-guard: COMPOSE_PROFILES ('$$COMPOSE_PROFILES') activates both backend/worker variants, which collide on container names and ports — use COMPOSE_PROFILES=cpu-false,vaapi-true (see .env.example)." >&2
             exit 1 ;;
         esac
         case ",$$COMPOSE_PROFILES," in
