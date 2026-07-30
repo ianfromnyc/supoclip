@@ -11,7 +11,9 @@ There are three main layers:
 - Root `.env`
   - The main place to configure the app
 - `docker-compose.yml`
-  - Supplies environment variables into the running containers
+  - Your own copy of `docker-compose.yml.example`. Supplies environment
+    variables into the running containers, and its commented-out `include:`
+    block is where optional add-ons are turned on
 - Application defaults
   - Fallback values defined in the backend or frontend code
 
@@ -82,7 +84,7 @@ deployment. The backend logs a deprecation warning when it is used; migrate to
 | `NEXT_PUBLIC_LANDING_ONLY_MODE` | `false` | Restricts the UI to the landing page only |
 | `TEMP_DIR` | `/app/uploads` in Docker | Temporary backend working directory for uploads and processing |
 | `CORS_ORIGINS` | `http://localhost:3001,http://127.0.0.1:3001,http://localhost:3107,http://sp.localhost:3107` | Allowed browser origins for backend requests, including direct browser video uploads. Covers both the port Docker publishes (3001, on either loopback host) and the local `next dev` port (3107). The built-in default lives in `Config.cors_origins` (`backend/src/config.py`); `.env.example` additionally lists `http://supoclip.localhost:3107` |
-| `CLOUDFLARE_TUNNEL_TOKEN` | empty | Cloudflare Tunnel connector token. When set, `./start.sh` enables the Compose `tunnel` profile so the optional `cloudflared` service provides public ingress. See [Setup](./setup.md#public-access-with-cloudflare-tunnel-optional) |
+| `CLOUDFLARE_TUNNEL_TOKEN` | empty | Cloudflare Tunnel connector token. Pair it with the `docker/options/tunnel.yml` include, which adds the `cloudflared` service for public ingress; `./start.sh` warns when the token is set but the include is not. See [Setup](./setup.md#public-access-with-cloudflare-tunnel-optional) |
 
 ## Analytics Settings
 

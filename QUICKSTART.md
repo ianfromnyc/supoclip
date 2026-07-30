@@ -21,9 +21,20 @@ Run SupoClip with Docker in just one command!
 
 That's it! The script will:
 - Check prerequisites
+- Create your `docker-compose.yml` from `docker-compose.yml.example` if you do
+  not have one yet
 - Build Docker images
 - Start all services
 - Show you where to access the app
+
+Prefer running `docker compose` yourself? Make the copy first — the repo does
+not ship a live compose file:
+
+```bash
+cp docker-compose.yml.example docker-compose.yml
+```
+
+It is git-ignored, so it is yours to edit and survives every `git pull`.
 
 ## First Time Setup
 
@@ -92,6 +103,14 @@ docker-compose down
 # Rebuild after code changes
 docker-compose up -d --build
 ```
+
+## Optional Add-ons
+
+GPU video encoding, local transcription, a local LLM, and Cloudflare Tunnel
+ingress each live in their own file under `docker/options/`. Turn one on by
+uncommenting its line — and the `include:` line above it — at the top of your
+`docker-compose.yml`, then run `docker-compose up -d` again. Each also needs a
+matching setting in `.env`; see [docs/setup.md](docs/setup.md#optional-add-ons).
 
 ## Environment Configuration
 
