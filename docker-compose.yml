@@ -10,7 +10,14 @@
 # and COMPOSE_PROFILES=cpu-false,vaapi-true activates whichever pair matches,
 # so VAAPI_ENABLED=false starts backend+worker and VAAPI_ENABLED=true starts
 # backend-vaapi+worker-vaapi. Set VIDEO_ENCODER=vaapi alongside it so ffmpeg
-# actually uses the GPU.
+# actually uses the GPU. The config-guard service below fails the stack loudly
+# when the switch is misconfigured (otherwise no variant would be selected and
+# the stack would come up with no API at all).
+#
+# When flipping VAAPI_ENABLED on an already-running stack, recreate it with
+#   docker compose down --remove-orphans && docker compose up -d
+# — a plain `up -d` hits a container-name conflict because the previous
+# variant's containers (same container_name/ports) are left behind as orphans.
 
 x-backend-service: &backend-service
   build:
@@ -27,10 +34,6 @@ x-backend-service: &backend-service
     - clips:/app/clips
     - ./backend/fonts:/app/fonts
     - ./backend/transitions:/app/transitions
-  labels:
-    # Fails fast with a clear message when COMPOSE_PROFILES is missing from
-    # .env — without it no backend/worker variant would start at all.
-    supoclip.compose-profiles: ${COMPOSE_PROFILES:?add COMPOSE_PROFILES=cpu-false,vaapi-true to your .env (see .env.example) so a backend/worker variant is selected}
   environment:
     - PYTHONPATH=/app
     - PYTHONUNBUFFERED=1
@@ -176,6 +179,36 @@ x-worker-service: &worker-service
     - "host.docker.internal:host-gateway"
 
 services:
+  # One-shot validator for the VAAPI switch: frontend and mcp wait for it to
+  # exit successfully. Without this, a typo in VAAPI_ENABLED (anything other
+  # than true/false) or a missing/stale COMPOSE_PROFILES line in .env would
+  # deselect every backend/worker variant and `up` would silently come up
+  # with no API. Note: this reads COMPOSE_PROFILES from the environment/.env —
+  # activating profiles via the `--profile` CLI flag instead is unsupported.
+  config-guard:
+    image: busybox:1.37
+    container_name: supoclip-config-guard
+    restart: "no"
+    environment:
+      - VAAPI_ENABLED=${VAAPI_ENABLED:-false}
+      - COMPOSE_PROFILES=${COMPOSE_PROFILES:-}
+    command:
+      - sh
+      - -c
+      - |
+        case "$$VAAPI_ENABLED" in
+          true)  needed=vaapi-true ;;
+          false) needed=cpu-false ;;
+          *)
+            echo "config-guard: VAAPI_ENABLED must be 'true' or 'false', got '$$VAAPI_ENABLED' — no backend/worker variant is selected." >&2
+            exit 1 ;;
+        esac
+        case ",$$COMPOSE_PROFILES," in
+          *",$$needed,"*) exit 0 ;;
+        esac
+        echo "config-guard: COMPOSE_PROFILES ('$$COMPOSE_PROFILES') does not activate the '$$needed' profile — add COMPOSE_PROFILES=cpu-false,vaapi-true to .env (see .env.example)." >&2
+        exit 1
+
   frontend:
     build:
       context: ./frontend
@@ -236,6 +269,8 @@ services:
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - "SES_FROM_EMAIL=${SES_FROM_EMAIL:-SupoClip <onboarding@example.com>}"
     depends_on:
+      config-guard:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       # Only one backend variant is active at a time (see the profiles note at
@@ -319,6 +354,8 @@ services:
       - SUPOCLIP_MCP_REQUIRE_BEARER_AUTH=${SUPOCLIP_MCP_REQUIRE_BEARER_AUTH:-true}
     restart: unless-stopped
     depends_on:
+      config-guard:
+        condition: service_completed_successfully
       backend:
         condition: service_healthy
         required: false
