@@ -9,7 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...admin_auth import require_admin_user
-from ...ai import _get_missing_llm_key_error
+from ...ai import _get_missing_llm_key_error, get_openai_service_tier_error
 from ...config import get_config
 from ...database import get_db
 from ...runtime_settings import (
@@ -46,8 +46,30 @@ SETTING_METADATA = {
     },
     "OPENAI_API_KEY": {
         "label": "OpenAI API key",
-        "description": "Required for openai:* models.",
+        "description": (
+            "Required for openai:* models on the hosted OpenAI API. Optional "
+            "when OPENAI_BASE_URL points at a keyless OpenAI-compatible endpoint."
+        ),
         "input_type": "password",
+    },
+    "OPENAI_BASE_URL": {
+        "label": "OpenAI base URL",
+        "description": (
+            "Optional endpoint override for openai:* models. Point it at any "
+            "OpenAI-compatible server (llama.cpp, vLLM, Ollama, OpenRouter, …); "
+            "leave it empty to use the hosted OpenAI API."
+        ),
+        # Masked (and stored encrypted) because hosted endpoint URLs can embed
+        # basic-auth credentials.
+        "input_type": "password",
+    },
+    "OPENAI_SERVICE_TIER": {
+        "label": "OpenAI service tier",
+        "description": (
+            "Optional per-request service tier: auto, default, flex, scale or "
+            "priority. Leave empty to let OpenAI choose."
+        ),
+        "input_type": "text",
     },
     "GOOGLE_API_KEY": {
         "label": "Google API key",
@@ -60,15 +82,21 @@ SETTING_METADATA = {
         "input_type": "password",
     },
     "OLLAMA_BASE_URL": {
-        "label": "Ollama base URL",
-        "description": "Optional URL for local or hosted Ollama-compatible endpoints.",
+        "label": "Ollama base URL (deprecated)",
+        "description": (
+            "Deprecated alias of OPENAI_BASE_URL, used only by ollama:* models. "
+            "Prefer openai:<model> with OPENAI_BASE_URL."
+        ),
         # Masked (and stored encrypted) because hosted endpoint URLs can embed
         # basic-auth credentials.
         "input_type": "password",
     },
     "OLLAMA_API_KEY": {
-        "label": "Ollama API key",
-        "description": "Optional, used by hosted Ollama-compatible providers.",
+        "label": "Ollama API key (deprecated)",
+        "description": (
+            "Deprecated alias of OPENAI_API_KEY, used only by ollama:* models. "
+            "Prefer openai:<model> with OPENAI_API_KEY."
+        ),
         "input_type": "password",
     },
     "YOUTUBE_DATA_API_KEY": {
@@ -176,6 +204,14 @@ async def update_runtime_settings(
         )
         if config_error and "API_KEY is not set" not in config_error:
             raise HTTPException(status_code=400, detail=config_error)
+
+    if "OPENAI_SERVICE_TIER" in payload.updates:
+        # Reject an unusable tier at save time rather than on the first clip job.
+        service_tier_error = get_openai_service_tier_error(
+            payload.updates["OPENAI_SERVICE_TIER"]
+        )
+        if service_tier_error:
+            raise HTTPException(status_code=400, detail=service_tier_error)
 
     if "TRANSCRIPTION_PROVIDER" in payload.updates:
         provider = payload.updates["TRANSCRIPTION_PROVIDER"].strip().lower()

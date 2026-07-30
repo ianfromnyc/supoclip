@@ -18,8 +18,11 @@ RUNTIME_SETTING_KEYS: tuple[str, ...] = (
     "HF_TOKEN",
     "LLM",
     "OPENAI_API_KEY",
+    "OPENAI_BASE_URL",
+    "OPENAI_SERVICE_TIER",
     "GOOGLE_API_KEY",
     "ANTHROPIC_API_KEY",
+    # Deprecated aliases of the OPENAI_* pair above, kept for compatibility.
     "OLLAMA_BASE_URL",
     "OLLAMA_API_KEY",
     "YOUTUBE_DATA_API_KEY",
@@ -30,6 +33,9 @@ RUNTIME_SETTING_KEYS: tuple[str, ...] = (
 PROCESS_ENV_SETTING_KEYS = frozenset(
     {
         "OPENAI_API_KEY",
+        # Mirrored so clearing it in the admin UI also clears the OpenAI SDK's
+        # own OPENAI_BASE_URL fallback instead of leaving a stale endpoint.
+        "OPENAI_BASE_URL",
         "GOOGLE_API_KEY",
         "ANTHROPIC_API_KEY",
         "OLLAMA_BASE_URL",
@@ -40,11 +46,13 @@ PROCESS_ENV_SETTING_KEYS = frozenset(
 # Non-secret settings (plain configuration values, not credentials) are stored
 # as marked plaintext so admins can manage them without configuring
 # APP_SETTINGS_ENCRYPTION_KEY. Everything else stays AES-GCM encrypted —
-# including OLLAMA_BASE_URL, since hosted endpoint URLs can embed credentials.
+# including OPENAI_BASE_URL/OLLAMA_BASE_URL, since hosted endpoint URLs can
+# embed credentials.
 NON_SECRET_SETTING_KEYS = frozenset(
     {
         "TRANSCRIPTION_PROVIDER",
         "LLM",
+        "OPENAI_SERVICE_TIER",
     }
 )
 

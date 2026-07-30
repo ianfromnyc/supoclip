@@ -46,6 +46,27 @@ async def test_runtime_settings_reject_unknown_transcription_provider(
     assert "assemblyai" in response.json()["detail"]
 
 
+async def test_runtime_settings_reject_unknown_openai_service_tier(
+    client, db_session, auth_headers
+):
+    await create_user(
+        db_session,
+        user_id="user-1",
+        email="owner@example.com",
+        is_admin=True,
+    )
+    await db_session.commit()
+
+    response = await client.patch(
+        "/admin/runtime-settings",
+        headers=auth_headers,
+        json={"updates": {"OPENAI_SERVICE_TIER": "turbo"}},
+    )
+
+    assert response.status_code == 400
+    assert "turbo" in response.json()["detail"]
+
+
 @pytest.mark.asyncio
 @pytest.mark.skipif(
     importlib.util.find_spec("whisperx") is not None,
