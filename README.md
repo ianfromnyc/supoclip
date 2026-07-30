@@ -111,8 +111,15 @@ BETTER_AUTH_SECRET=  # or set it yourself: openssl rand -hex 32
 ### 2. Start the Services
 
 ```bash
-docker-compose up -d
+./start.sh
 ```
+
+`start.sh` validates your `.env`, generates secure random values for any auth
+secrets still at their defaults, and brings the stack up. If you prefer running
+`docker-compose up -d` directly, set `BACKEND_AUTH_SECRET`,
+`BETTER_AUTH_SECRET`, and `APP_SETTINGS_ENCRYPTION_KEY` to distinct random
+values (`openssl rand -hex 32`) first — Compose alone substitutes publicly
+known defaults for anything left unset.
 
 This starts (all published ports are bound to `127.0.0.1`):
 - **Frontend**: http://localhost:3001
