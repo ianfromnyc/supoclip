@@ -47,6 +47,11 @@ def _base_url_of(model: OpenAIChatModel) -> str:
     return str(model.client.base_url).rstrip("/")
 
 
+def _api_key_of(model: OpenAIChatModel) -> str | None:
+    # What the client will actually send as the bearer token.
+    return model.client.api_key
+
+
 def test_openai_model_uses_custom_base_url_without_an_api_key(monkeypatch):
     monkeypatch.setenv("LLM", "openai:qwen3-coder")
     monkeypatch.setenv("OPENAI_BASE_URL", "http://localhost:8080/v1")
@@ -87,6 +92,59 @@ def test_openai_base_url_takes_precedence_over_the_ollama_alias(monkeypatch):
     model = _build_transcript_model(Config())
 
     assert _base_url_of(model) == "http://llama-swap.example/v1"
+
+
+def test_ollama_alias_never_leaks_the_openai_key_to_the_legacy_endpoint(monkeypatch):
+    # The key must be paired with the base URL it belongs to: an OPENAI_API_KEY
+    # set for some other purpose must not be sent as a bearer token to the
+    # user's local Ollama server.
+    monkeypatch.setenv("LLM", "ollama:gpt-oss:20b")
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://ollama.example/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-hosted-openai-secret")
+
+    model = _build_transcript_model(Config())
+
+    assert _base_url_of(model) == "http://ollama.example/v1"
+    assert _api_key_of(model) != "sk-hosted-openai-secret"
+
+
+def test_ollama_alias_default_endpoint_never_leaks_the_openai_key(monkeypatch):
+    # Same pairing rule when the base URL comes from the localhost default
+    # rather than from OLLAMA_BASE_URL.
+    monkeypatch.setattr(config_module.os.path, "exists", lambda path: False)
+    monkeypatch.setenv("LLM", "ollama:gpt-oss:20b")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-hosted-openai-secret")
+
+    model = _build_transcript_model(Config())
+
+    assert _base_url_of(model) == "http://localhost:11434/v1"
+    assert _api_key_of(model) != "sk-hosted-openai-secret"
+
+
+def test_ollama_alias_uses_the_ollama_key_for_the_legacy_endpoint(monkeypatch):
+    monkeypatch.setenv("LLM", "ollama:gpt-oss:20b")
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://ollama.example/v1")
+    monkeypatch.setenv("OLLAMA_API_KEY", "ollama-key")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-hosted-openai-secret")
+
+    model = _build_transcript_model(Config())
+
+    assert _api_key_of(model) == "ollama-key"
+
+
+def test_ollama_alias_pairs_the_openai_key_with_the_openai_base_url(monkeypatch):
+    # When OPENAI_BASE_URL wins the base URL, the OpenAI key travels with it —
+    # the legacy OLLAMA_API_KEY belongs to the endpoint that was not chosen.
+    monkeypatch.setenv("LLM", "ollama:gpt-oss:20b")
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://ollama.example/v1")
+    monkeypatch.setenv("OLLAMA_API_KEY", "ollama-key")
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://llama-swap.example/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-hosted-openai-secret")
+
+    model = _build_transcript_model(Config())
+
+    assert _base_url_of(model) == "http://llama-swap.example/v1"
+    assert _api_key_of(model) == "sk-hosted-openai-secret"
 
 
 def test_ollama_alias_logs_a_deprecation_warning_once(monkeypatch, caplog):

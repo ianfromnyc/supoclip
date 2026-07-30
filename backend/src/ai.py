@@ -328,6 +328,12 @@ _deprecated_provider_alias_warned: set[str] = set()
 # https://platform.openai.com/docs/api-reference/chat/create
 VALID_OPENAI_SERVICE_TIERS = ("auto", "default", "flex", "scale", "priority")
 
+# Sent instead of a real key to keyless custom endpoints. The OpenAI client
+# demands some non-empty key, and passing None would let it fall back to the
+# OPENAI_API_KEY environment variable — which is how a hosted key would end up
+# on the wire to someone's local model server. Matches the SDK's own sentinel.
+_PLACEHOLDER_API_KEY = "api-key-not-set"
+
 
 def _split_llm_name(model_name: str) -> tuple[str, str | None]:
     if ":" not in model_name:
@@ -422,19 +428,25 @@ def _resolve_openai_compatible_endpoint(
 ) -> tuple[str | None, str | None]:
     """Resolve the (base_url, api_key) pair for an OpenAI-compatible endpoint.
 
-    `openai:*` uses OPENAI_BASE_URL/OPENAI_API_KEY; a `None` base URL means
-    "let the SDK use the published OpenAI endpoint". The deprecated `ollama:*`
-    alias falls back to the legacy OLLAMA_* variables (and, failing those, the
-    default local Ollama URL) so existing deployments keep working unchanged.
+    The key is always paired with the base URL it belongs to, never mixed:
+
+    - `openai:*` uses OPENAI_BASE_URL/OPENAI_API_KEY. A `None` base URL means
+      "let the SDK use the published OpenAI endpoint".
+    - The deprecated `ollama:*` alias prefers that same OPENAI_* pair, and only
+      when OPENAI_BASE_URL is unset falls back to the legacy OLLAMA_* pair (or
+      the default local Ollama URL) so existing deployments keep working.
+
+    Pairing matters for more than tidiness: an OPENAI_API_KEY set for some
+    unrelated purpose must never be sent as a bearer token to a user's local
+    Ollama server.
     """
-    base_url = runtime_config.openai_base_url
-    api_key = runtime_config.openai_api_key
+    if provider == "ollama" and not runtime_config.openai_base_url:
+        return (
+            runtime_config.resolve_ollama_base_url(),
+            runtime_config.ollama_api_key,
+        )
 
-    if provider == "ollama":
-        base_url = base_url or runtime_config.resolve_ollama_base_url()
-        api_key = api_key or runtime_config.ollama_api_key
-
-    return base_url, api_key
+    return runtime_config.openai_base_url, runtime_config.openai_api_key
 
 
 def _build_transcript_model(runtime_config: Config) -> Model | str:
@@ -450,6 +462,11 @@ def _build_transcript_model(runtime_config: Config) -> Model | str:
 
     _warn_once_about_deprecated_provider_alias(provider)
     base_url, api_key = _resolve_openai_compatible_endpoint(provider, runtime_config)
+
+    if base_url and not api_key:
+        # Keyless custom endpoint: send the placeholder rather than letting the
+        # SDK reach for OPENAI_API_KEY behind our back.
+        api_key = _PLACEHOLDER_API_KEY
 
     return OpenAIChatModel(
         provider_model_name,
