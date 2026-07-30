@@ -1,0 +1,50 @@
+# Local transcription with WhisperX — no AssemblyAI account, nothing leaves
+# the host.
+#
+# Enable by uncommenting this file's include line in docker-compose.yml, and
+# set TRANSCRIPTION_PROVIDER=whisperx in .env. The backend and worker already
+# point WHISPERX_API_URL at http://whisperx:9000, so nothing else is needed.
+#
+# Speaker labels (diarization) additionally need HF_TOKEN — a Hugging Face
+# token that has accepted the pyannote model licences. Without one the service
+# still transcribes, just without "Speaker A/B" attribution.
+#
+# Expect the first request to take a long while: the model is downloaded on
+# demand into the whisperx_cache volume, and a large-v3 transcription on CPU
+# runs slower than real time. WHISPERX_MODEL=small or base trades accuracy for
+# a lot of speed.
+services:
+  whisperx:
+    # CPU image (amd64 + arm64). On an NVIDIA host, switch to
+    # `:latest-gpu` and add `gpus: all` below for a large speed-up.
+    image: onerahmet/openai-whisper-asr-webservice:latest
+    container_name: supoclip-whisperx
+    environment:
+      - ASR_ENGINE=whisperx
+      - ASR_MODEL=${WHISPERX_MODEL:-large-v3}
+      # Needed only for diarization; the service prints a notice when unset.
+      - HF_TOKEN=${HF_TOKEN:-}
+    ports:
+      # Published on loopback purely for debugging — the backend reaches the
+      # service over the compose network. Browse http://127.0.0.1:9000/docs to
+      # try a file by hand.
+      - "127.0.0.1:${WHISPERX_PORT:-9000}:9000"
+    volumes:
+      # Whisper checkpoints and the pyannote/wav2vec2 models all land under
+      # ~/.cache, and re-downloading several GB on every recreate is painful.
+      - whisperx_cache:/root/.cache
+    restart: unless-stopped
+    healthcheck:
+      # The API only starts serving once the model is loaded, so this doubles
+      # as a "ready to transcribe" signal. start_period covers the first
+      # download; until it elapses, failures do not mark the container
+      # unhealthy.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9000/docs', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+volumes:
+  whisperx_cache:
+    driver: local

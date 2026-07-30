@@ -130,6 +130,12 @@ services:
       - WHISPERX_DEVICE=${WHISPERX_DEVICE:-auto}
       - WHISPERX_COMPUTE_TYPE=${WHISPERX_COMPUTE_TYPE:-}
       - WHISPERX_DIARIZE=${WHISPERX_DIARIZE:-true}
+      # Transcribe by calling the whisperx add-on rather than loading WhisperX
+      # into this container (the heavy torch stack is not in our image). The
+      # single-dash default applies only when .env leaves the name undefined,
+      # so an explicit blank line still selects the in-process path.
+      - WHISPERX_API_URL=${WHISPERX_API_URL-http://whisperx:9000}
+      - WHISPERX_API_TIMEOUT_SECONDS=${WHISPERX_API_TIMEOUT_SECONDS:-3600}
       - HF_TOKEN=${HF_TOKEN:-}
       - APIFY_API_TOKEN=${APIFY_API_TOKEN}
       - APIFY_YOUTUBE_DOWNLOADER_ACTOR=${APIFY_YOUTUBE_DOWNLOADER_ACTOR:-epctex/youtube-video-downloader}
@@ -218,6 +224,12 @@ services:
       - WHISPERX_DEVICE=${WHISPERX_DEVICE:-auto}
       - WHISPERX_COMPUTE_TYPE=${WHISPERX_COMPUTE_TYPE:-}
       - WHISPERX_DIARIZE=${WHISPERX_DIARIZE:-true}
+      # Transcribe by calling the whisperx add-on rather than loading WhisperX
+      # into this container (the heavy torch stack is not in our image). The
+      # single-dash default applies only when .env leaves the name undefined,
+      # so an explicit blank line still selects the in-process path.
+      - WHISPERX_API_URL=${WHISPERX_API_URL-http://whisperx:9000}
+      - WHISPERX_API_TIMEOUT_SECONDS=${WHISPERX_API_TIMEOUT_SECONDS:-3600}
       - HF_TOKEN=${HF_TOKEN:-}
       - APIFY_API_TOKEN=${APIFY_API_TOKEN}
       - APIFY_YOUTUBE_DOWNLOADER_ACTOR=${APIFY_YOUTUBE_DOWNLOADER_ACTOR:-epctex/youtube-video-downloader}
