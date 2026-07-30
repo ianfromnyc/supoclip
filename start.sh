@@ -40,25 +40,69 @@ source .env
 # already customised are left alone on purpose: rotating
 # APP_SETTINGS_ENCRYPTION_KEY, for example, would make previously encrypted admin
 # settings impossible to decrypt.
-#
-# Usage: generate_secret_if_placeholder VAR_NAME placeholder [placeholder...]
-generate_secret_if_placeholder() {
-    local var="$1" current new placeholder is_placeholder=0
+
+# The placeholders we publish, one entry per secret: "VAR_NAME placeholder...".
+# Single-sourced so the generation pass below and the "cannot generate anything"
+# safety check cannot drift apart.
+PLACEHOLDER_SECRETS=(
+    "BACKEND_AUTH_SECRET change_me_backend_auth_secret"
+    "BETTER_AUTH_SECRET supoclip_dev_secret_change_in_production change_this_in_production"
+    "APP_SETTINGS_ENCRYPTION_KEY change_me_settings_encryption_secret"
+)
+
+# Print 32 random bytes as 64 lowercase hex characters. openssl is preferred, but
+# plenty of minimal hosts do not ship it, so fall back to reading /dev/urandom
+# through od (both are POSIX tools). Returns non-zero only when neither source
+# works, which callers must treat as "no secret can be generated at all".
+# SUPOCLIP_URANDOM_SOURCE exists so that fail-safe path can be exercised in tests.
+generate_random_hex() {
+    local urandom="${SUPOCLIP_URANDOM_SOURCE:-/dev/urandom}"
+
+    if command -v openssl > /dev/null 2>&1; then
+        openssl rand -hex 32
+        return
+    fi
+
+    if [ -r "$urandom" ] && command -v od > /dev/null 2>&1; then
+        head -c 32 "$urandom" | od -An -tx1 | tr -d ' \n'
+        return
+    fi
+
+    return 1
+}
+
+# True when $1's current value is empty or still one of its documented
+# placeholders, i.e. when it must not be trusted as a real secret.
+# Usage: secret_needs_generating VAR_NAME placeholder [placeholder...]
+secret_needs_generating() {
+    local var="$1" current placeholder
     shift
     current="${!var:-}"
+
+    if [ -z "$current" ]; then
+        return 0
+    fi
 
     # Any value that matches none of the documented placeholders is a real secret.
     for placeholder in "$@"; do
         if [ "$current" = "$placeholder" ]; then
-            is_placeholder=1
-            break
+            return 0
         fi
     done
-    if [ -n "$current" ] && [ "$is_placeholder" -eq 0 ]; then
+
+    return 1
+}
+
+# Usage: generate_secret_if_placeholder VAR_NAME placeholder [placeholder...]
+generate_secret_if_placeholder() {
+    local var="$1" current new
+    current="${!var:-}"
+
+    if ! secret_needs_generating "$@"; then
         return 0
     fi
 
-    new="$(openssl rand -hex 32)"
+    new="$(generate_random_hex)"
 
     # Update the existing assignment in place, or add one if the var is absent.
     # Commented-out lines do not count as an assignment, hence the "^VAR=" anchor.
@@ -85,15 +129,44 @@ generate_secret_if_placeholder() {
     fi
 }
 
-if command -v openssl > /dev/null 2>&1; then
-    generate_secret_if_placeholder BACKEND_AUTH_SECRET change_me_backend_auth_secret
-    generate_secret_if_placeholder BETTER_AUTH_SECRET \
-        supoclip_dev_secret_change_in_production change_this_in_production
-    generate_secret_if_placeholder APP_SETTINGS_ENCRYPTION_KEY change_me_settings_encryption_secret
+# Probe the generator once up front: if this host can produce randomness we fix
+# up every placeholder, otherwise we must not quietly start on known secrets.
+if generate_random_hex > /dev/null 2>&1; then
+    for secret_spec in "${PLACEHOLDER_SECRETS[@]}"; do
+        # Split "VAR placeholder..." into arguments without relying on globbing.
+        read -ra secret_args <<< "$secret_spec"
+        generate_secret_if_placeholder "${secret_args[@]}"
+    done
 else
-    echo -e "${YELLOW}Warning: openssl not found, cannot generate missing auth secrets${NC}"
-    echo "Set BACKEND_AUTH_SECRET, BETTER_AUTH_SECRET and APP_SETTINGS_ENCRYPTION_KEY"
-    echo "in .env to long random values yourself."
+    # No randomness source at all (no openssl, no readable /dev/urandom). Any
+    # secret still holding a documented placeholder is public knowledge, and we
+    # have no way to replace it, so refuse to start rather than warn and proceed.
+    unsafe_secrets=()
+    for secret_spec in "${PLACEHOLDER_SECRETS[@]}"; do
+        read -ra secret_args <<< "$secret_spec"
+        if secret_needs_generating "${secret_args[@]}"; then
+            unsafe_secrets+=("${secret_args[0]}")
+        fi
+    done
+
+    if [ "${#unsafe_secrets[@]}" -gt 0 ]; then
+        echo -e "${RED}Error: refusing to start with placeholder auth secrets${NC}"
+        echo ""
+        echo "Unset or still placeholder: ${unsafe_secrets[*]}"
+        echo ""
+        echo "These values are published in .env.example and the README, so anyone could"
+        echo "forge sessions and decrypt your admin settings. Neither openssl nor"
+        echo "/dev/urandom is available here, so this script cannot replace them for you."
+        echo ""
+        echo "Set each of them in .env to its own long random value - for example run"
+        echo "'openssl rand -hex 32' once per secret on another machine - then re-run this"
+        echo "script."
+        echo ""
+        exit 1
+    fi
+
+    echo -e "${YELLOW}Note: no openssl or /dev/urandom available, so auth secrets cannot be${NC}"
+    echo "generated - continuing with the customised values already in .env."
     echo ""
 fi
 
