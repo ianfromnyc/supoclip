@@ -1,0 +1,52 @@
+# Local LLM: llama.cpp server, NVIDIA GPU (CUDA).
+#
+# A convenience scaffold, not a tuned deployment — it starts an
+# OpenAI-compatible endpoint next to SupoClip so transcript analysis can run
+# without a cloud provider. Expect to tune the flags for your model and card.
+#
+# Enable by uncommenting EXACTLY ONE llama-*.yml include in docker-compose.yml
+# (they all define the same `llama` service), then in .env:
+#
+#   LLM=openai:<model>                      # any name; llama.cpp serves one model
+#   OPENAI_BASE_URL=http://llama:8080/v1    # compose hostname, container port
+#
+# You must supply the model yourself: put a .gguf file in the directory named
+# by LLAMA_MODELS_DIR (default ./models) and set LLAMA_MODEL to its filename.
+#
+# Needs the NVIDIA Container Toolkit installed on the host. Add
+# LLAMA_ARGS="-ngl 99" to actually offload the model onto the GPU.
+services:
+  llama:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    container_name: supoclip-llama
+    # llama-server is the image entrypoint, so this is just its arguments.
+    # LLAMA_ARGS appends your own flags, e.g. LLAMA_ARGS="-ngl 99 -c 8192"
+    # (-ngl offloads layers to the GPU, -c sets the context size).
+    command: >
+      --host 0.0.0.0 --port 8080
+      --model /models/${LLAMA_MODEL:-model.gguf}
+      ${LLAMA_ARGS:-}
+    ports:
+      # Loopback only: SupoClip reaches it over the compose network at
+      # http://llama:8080. The published port is for curl and llama.cpp's own
+      # web UI, and defaults to 9292 to stay clear of anything on 8080.
+      - "127.0.0.1:${LLAMA_PORT:-9292}:8080"
+    volumes:
+      # Read-only: the server never writes to the model directory.
+      - ${LLAMA_MODELS_DIR:-./models}:/models:ro
+    # Hands every NVIDIA GPU to the container. This shorthand needs
+    # Compose v2.30+; on older releases use the long form instead:
+    #   deploy:
+    #     resources:
+    #       reservations:
+    #         devices:
+    #           - capabilities: [gpu]
+    gpus: all
+    restart: unless-stopped
+    healthcheck:
+      # /health reports 200 only once the model is loaded into memory.
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
