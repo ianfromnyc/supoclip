@@ -55,22 +55,32 @@ PLACEHOLDER_SECRETS=(
 # through od (both are POSIX tools). Returns non-zero only when neither source
 # works, which callers must treat as "no secret can be generated at all".
 # SUPOCLIP_URANDOM_SOURCE exists so that fail-safe path can be exercised in tests.
+# True when $1 is exactly 64 lowercase hex characters — the only output
+# generate_random_hex is allowed to report success with.
+is_64_hex() {
+    case "$1" in
+        *[!0-9a-f]*) return 1 ;;
+    esac
+    [ "${#1}" -eq 64 ]
+}
+
 generate_random_hex() {
     local urandom="${SUPOCLIP_URANDOM_SOURCE:-/dev/urandom}"
     local hex=""
 
     if command -v openssl > /dev/null 2>&1; then
         hex="$(openssl rand -hex 32)" || hex=""
-    elif [ -r "$urandom" ] && command -v od > /dev/null 2>&1; then
+    fi
+
+    # Fall back to /dev/urandom when openssl is missing or produced unusable
+    # output (e.g. a broken provider or entropy configuration).
+    if ! is_64_hex "$hex" && [ -r "$urandom" ] && command -v od > /dev/null 2>&1; then
         hex="$(head -c 32 "$urandom" | od -An -tx1 | tr -d ' \n')" || hex=""
     fi
 
-    # Never report success with a short or empty result: a truncated random
+    # Never report success with a short or malformed result: a truncated random
     # source or a masked pipeline failure must not become a weak secret.
-    case "$hex" in
-        *[!0-9a-f]*) return 1 ;;
-    esac
-    [ "${#hex}" -eq 64 ] || return 1
+    is_64_hex "$hex" || return 1
     printf '%s' "$hex"
 }
 
