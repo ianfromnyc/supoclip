@@ -1,9 +1,14 @@
 # Local transcription with WhisperX — no AssemblyAI account, nothing leaves
 # the host.
 #
-# Enable by uncommenting this file's include line in docker-compose.yml, and
-# set TRANSCRIPTION_PROVIDER=whisperx in .env. The backend and worker already
-# point WHISPERX_API_URL at http://whisperx:9000, so nothing else is needed.
+# Enable by uncommenting this file's include line in docker-compose.yml, then:
+#
+#   cp .env.whisperx.example .env.whisperx
+#
+# That one file carries the whole switch — TRANSCRIPTION_PROVIDER and
+# WHISPERX_API_URL for the backend and worker, ASR_MODEL and HF_TOKEN for this
+# service — so forgetting it leaves the stack quietly on AssemblyAI rather than
+# half-enabled.
 #
 # Speaker labels (diarization) additionally need HF_TOKEN — a Hugging Face
 # token that has accepted the pyannote model licences. Without one the service
@@ -11,19 +16,31 @@
 #
 # Expect the first request to take a long while: the model is downloaded on
 # demand into the whisperx_cache volume, and a large-v3 transcription on CPU
-# runs slower than real time. WHISPERX_MODEL=small or base trades accuracy for
-# a lot of speed.
+# runs slower than real time. ASR_MODEL=small or base trades accuracy for a lot
+# of speed.
 services:
   whisperx:
     # CPU image (amd64 + arm64). On an NVIDIA host, switch to
     # `:latest-gpu` and add `gpus: all` below for a large speed-up.
     image: onerahmet/openai-whisper-asr-webservice:latest
     container_name: supoclip-whisperx
+    env_file:
+      # env_file paths inside an included file resolve relative to THIS file's
+      # directory rather than the project root, hence `../../` to climb back
+      # out of docker/options/.
+      #
+      # ASR_MODEL and HF_TOKEN live in there under the image's own variable
+      # names, not ours, because compose only interpolates ${...} from the root
+      # .env — a scoped file can reach a service only through names that
+      # service already understands.
+      - path: ../../.env.whisperx
+        required: false
     environment:
+      # Deliberately not in .env.whisperx: the backend maps this engine's exact
+      # output format, so it is structural rather than a knob. Anything listed
+      # under `environment:` outranks env_file and would silently shadow the
+      # scoped file, which is why nothing else appears here.
       - ASR_ENGINE=whisperx
-      - ASR_MODEL=${WHISPERX_MODEL:-large-v3}
-      # Needed only for diarization; the service prints a notice when unset.
-      - HF_TOKEN=${HF_TOKEN:-}
     ports:
       # Published on loopback purely for debugging — the backend reaches the
       # service over the compose network. Browse http://127.0.0.1:9000/docs to

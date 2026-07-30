@@ -1,8 +1,13 @@
 # Cloudflare Tunnel — optional public ingress without opening a port.
 #
-# Enable by uncommenting this file's include line in docker-compose.yml, and
-# set CLOUDFLARE_TUNNEL_TOKEN in .env (Zero Trust dashboard -> Networks ->
-# Tunnels -> Create a tunnel -> Cloudflared connector).
+# Enable by uncommenting this file's include line in docker-compose.yml, then:
+#
+#   cp .env.tunnel.example .env.tunnel
+#
+# and put your connector token in it (Zero Trust dashboard -> Networks ->
+# Tunnels -> Create a tunnel -> Cloudflared connector). The credential that
+# publishes your app to the internet lives in exactly one file, which is also
+# the file you delete to stop publishing it.
 #
 # Hostname -> service routing is configured in the dashboard, not here: in the
 # tunnel's Public Hostname tab point the app hostname at http://frontend:3107
@@ -16,9 +21,13 @@ services:
     # Metrics/debug endpoint binds to loopback only: the healthcheck below execs
     # inside this container, so nothing on the compose network needs to reach it.
     command: ["tunnel", "--no-autoupdate", "--metrics", "127.0.0.1:2000", "run"]
-    environment:
-      # TUNNEL_TOKEN is how cloudflared reads the token from the environment.
-      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN:-}
+    env_file:
+      # Resolved relative to THIS file's directory, not the project root.
+      # The file names the variable TUNNEL_TOKEN because that is what
+      # cloudflared itself reads; there is no `environment:` block here, since
+      # one would outrank the file and shadow the token.
+      - path: ../../.env.tunnel
+        required: false
     depends_on:
       frontend:
         condition: service_healthy

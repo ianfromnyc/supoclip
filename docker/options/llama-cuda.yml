@@ -5,34 +5,45 @@
 # without a cloud provider. Expect to tune the flags for your model and card.
 #
 # Enable by uncommenting EXACTLY ONE llama-*.yml include in docker-compose.yml
-# (they all define the same `llama` service), then in .env:
+# (they all define the same `llama` service), then:
 #
-#   LLM=openai:<model>                      # any name; llama.cpp serves one model
-#   OPENAI_BASE_URL=http://llama:8080/v1    # compose hostname, container port
+#   cp .env.llama.example .env.llama
 #
-# You must supply the model yourself: put a .gguf file in the directory named
-# by LLAMA_MODELS_DIR (default ./models) and set LLAMA_MODEL to its filename.
+# All five variants share that one file. You must supply the model yourself:
+# put a .gguf in the directory LLAMA_MODELS_DIR names (default ./models) and
+# point LLAMA_ARG_MODEL at it. Without .env.llama the server has no model to
+# load and exits on startup.
 #
-# Needs the NVIDIA Container Toolkit installed on the host. Add
-# LLAMA_ARGS="-ngl 99" to actually offload the model onto the GPU.
+# The other half of the pairing goes in the root .env, because compose feeds it
+# to the backend through `environment:`, which outranks any env_file:
+#
+#   LLM=openai:local
+#   OPENAI_BASE_URL=http://llama:8080/v1
+#
+# Needs the NVIDIA Container Toolkit installed on the host.
 services:
   llama:
     image: ghcr.io/ggml-org/llama.cpp:server-cuda
     container_name: supoclip-llama
-    # llama-server is the image entrypoint, so this is just its arguments.
-    # LLAMA_ARGS appends your own flags, e.g. LLAMA_ARGS="-ngl 99 -c 8192"
-    # (-ngl offloads layers to the GPU, -c sets the context size).
-    command: >
-      --host 0.0.0.0 --port 8080
-      --model /models/${LLAMA_MODEL:-model.gguf}
-      ${LLAMA_ARGS:-}
+    env_file:
+      # Resolved relative to THIS file's directory, not the project root.
+      #
+      # The service is configured entirely through llama-server's own
+      # LLAMA_ARG_* variables in that file, and deliberately passes no
+      # command-line arguments: a command-line flag beats the matching
+      # environment variable, so an argument here would override — and
+      # silently ignore — whatever you put in .env.llama.
+      - path: ../../.env.llama
+        required: false
     ports:
       # Loopback only: SupoClip reaches it over the compose network at
       # http://llama:8080. The published port is for curl and llama.cpp's own
       # web UI, and defaults to 9292 to stay clear of anything on 8080.
       - "127.0.0.1:${LLAMA_PORT:-9292}:8080"
     volumes:
-      # Read-only: the server never writes to the model directory.
+      # Read-only: the server never writes to the model directory. The host
+      # path is a stack-level layout choice, so it stays in the root .env —
+      # compose can only interpolate from there.
       - ${LLAMA_MODELS_DIR:-./models}:/models:ro
     # Hands every NVIDIA GPU to the container. This shorthand needs
     # Compose v2.30+; on older releases use the long form instead:

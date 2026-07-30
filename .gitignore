@@ -8,6 +8,10 @@ htmlcov/
 logs/
 temp/
 .env
+# Per-add-on settings (.env.vaapi, .env.whisperx, .env.tunnel, .env.llama),
+# each copied from the matching *.example, which stays tracked.
+.env.*
+!.env.*.example
 *.m4a
 frontend/e2e/.seed.json
 

@@ -8,18 +8,23 @@
 # ./start.sh makes the copy for you when it is missing.
 
 # ── Optional add-ons ─────────────────────────────────────────────
-# Enable by uncommenting the include line(s), then `docker compose up -d`.
-# For llama.cpp, uncomment EXACTLY ONE variant matching your hardware.
+# Enabling one takes two steps: uncomment its include line below (and the
+# `include:` line itself), then copy its settings file —
+# `cp .env.<option>.example .env.<option>` — and edit that. Then
+# `docker compose up -d`.
+#
+# For llama.cpp, uncomment EXACTLY ONE variant matching your hardware; all five
+# define the same `llama` service and share one .env.llama.
 # Details: docs/setup.md
 # include:
-#   - path: docker/options/vaapi.yml        # Intel/AMD GPU video encoding — also set VIDEO_ENCODER=vaapi in .env
-#   - path: docker/options/whisperx.yml     # local transcription — also set TRANSCRIPTION_PROVIDER=whisperx in .env
-#   - path: docker/options/tunnel.yml       # Cloudflare Tunnel ingress — needs CLOUDFLARE_TUNNEL_TOKEN in .env
-#   - path: docker/options/llama-cpu.yml    # local LLM, llama.cpp server, CPU only
-#   - path: docker/options/llama-cuda.yml   # local LLM, NVIDIA GPU
-#   - path: docker/options/llama-rocm.yml   # local LLM, AMD GPU
-#   - path: docker/options/llama-sycl.yml   # local LLM, Intel GPU (SYCL)
-#   - path: docker/options/llama-vulkan.yml # local LLM, generic Vulkan GPU
+#   - path: docker/options/vaapi.yml        # Intel/AMD GPU video encoding    -> .env.vaapi
+#   - path: docker/options/whisperx.yml     # local transcription             -> .env.whisperx
+#   - path: docker/options/tunnel.yml       # Cloudflare Tunnel ingress       -> .env.tunnel
+#   - path: docker/options/llama-cpu.yml    # local LLM, CPU only             -> .env.llama
+#   - path: docker/options/llama-cuda.yml   # local LLM, NVIDIA GPU           -> .env.llama
+#   - path: docker/options/llama-rocm.yml   # local LLM, AMD GPU              -> .env.llama
+#   - path: docker/options/llama-sycl.yml   # local LLM, Intel GPU (SYCL)     -> .env.llama
+#   - path: docker/options/llama-vulkan.yml # local LLM, generic Vulkan GPU   -> .env.llama
 
 services:
   frontend:
@@ -115,6 +120,19 @@ services:
       - clips:/app/clips
       - ./backend/fonts:/app/fonts
       - ./backend/transitions:/app/transitions
+    env_file:
+      # Per-add-on settings, each copied by you from its .example. A file that
+      # is not there is skipped rather than failing the stack, so an add-on you
+      # have not enabled is simply absent — and the defaults in config.py are
+      # the same values the removed `environment:` lines used to supply.
+      #
+      # Anything owned by one of these files MUST NOT also appear under
+      # `environment:` below: `environment:` always wins, even when it
+      # interpolates to an empty string, which would silently shadow the file.
+      - path: .env.vaapi
+        required: false
+      - path: .env.whisperx
+        required: false
     environment:
       - PYTHONPATH=/app
       - PYTHONUNBUFFERED=1
@@ -125,18 +143,6 @@ services:
       - REDIS_PASSWORD=${REDIS_PASSWORD}
       - ASSEMBLY_AI_API_KEY=${ASSEMBLY_AI_API_KEY}
       - ASSEMBLY_AI_HTTP_TIMEOUT_SECONDS=${ASSEMBLY_AI_HTTP_TIMEOUT_SECONDS:-900}
-      - TRANSCRIPTION_PROVIDER=${TRANSCRIPTION_PROVIDER:-assemblyai}
-      - WHISPERX_MODEL=${WHISPERX_MODEL:-large-v3}
-      - WHISPERX_DEVICE=${WHISPERX_DEVICE:-auto}
-      - WHISPERX_COMPUTE_TYPE=${WHISPERX_COMPUTE_TYPE:-}
-      - WHISPERX_DIARIZE=${WHISPERX_DIARIZE:-true}
-      # Transcribe by calling the whisperx add-on rather than loading WhisperX
-      # into this container (the heavy torch stack is not in our image). The
-      # single-dash default applies only when .env leaves the name undefined,
-      # so an explicit blank line still selects the in-process path.
-      - WHISPERX_API_URL=${WHISPERX_API_URL-http://whisperx:9000}
-      - WHISPERX_API_TIMEOUT_SECONDS=${WHISPERX_API_TIMEOUT_SECONDS:-3600}
-      - HF_TOKEN=${HF_TOKEN:-}
       - APIFY_API_TOKEN=${APIFY_API_TOKEN}
       - APIFY_YOUTUBE_DOWNLOADER_ACTOR=${APIFY_YOUTUBE_DOWNLOADER_ACTOR:-epctex/youtube-video-downloader}
       - APIFY_YOUTUBE_DEFAULT_QUALITY=${APIFY_YOUTUBE_DEFAULT_QUALITY:-1080}
@@ -144,6 +150,12 @@ services:
       - YOUTUBE_DATA_API_KEY=${YOUTUBE_DATA_API_KEY}
       - YOUTUBE_METADATA_PROVIDER=${YOUTUBE_METADATA_PROVIDER:-yt_dlp}
       - YOUTUBE_DOWNLOAD_PROVIDER=${YOUTUBE_DOWNLOAD_PROVIDER:-yt_dlp}
+      # LLM config stays in the root .env because it is core, not add-on
+      # specific — every provider uses it. That also means it cannot be moved
+      # into .env.llama: these lines outrank any env_file, so a value here
+      # would shadow one there. llama.cpp users set LLM=openai:local and
+      # OPENAI_BASE_URL=http://llama:8080/v1 in .env, and put the *server's*
+      # own configuration (LLAMA_ARG_*) in .env.llama.
       - LLM=${LLM:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
@@ -160,10 +172,6 @@ services:
       - DEFAULT_PROCESSING_MODE=${DEFAULT_PROCESSING_MODE:-fast}
       - FAST_MODE_MAX_CLIPS=${FAST_MODE_MAX_CLIPS:-4}
       - FAST_MODE_TRANSCRIPT_MODEL=${FAST_MODE_TRANSCRIPT_MODEL:-universal}
-      # VIDEO_ENCODER=vaapi also needs the host GPU render nodes in the
-      # container: uncomment the vaapi.yml include at the top of this file.
-      - VIDEO_ENCODER=${VIDEO_ENCODER:-libx264}
-      - VAAPI_DEVICE=${VAAPI_DEVICE:-/dev/dri/renderD128}
       - SELF_HOST=${SELF_HOST:-true}
       - BACKEND_AUTH_SECRET=${BACKEND_AUTH_SECRET}
       - APP_SETTINGS_ENCRYPTION_KEY=${APP_SETTINGS_ENCRYPTION_KEY}
@@ -209,6 +217,19 @@ services:
       - clips:/app/clips
       - ./backend/fonts:/app/fonts
       - ./backend/transitions:/app/transitions
+    env_file:
+      # Per-add-on settings, each copied by you from its .example. A file that
+      # is not there is skipped rather than failing the stack, so an add-on you
+      # have not enabled is simply absent — and the defaults in config.py are
+      # the same values the removed `environment:` lines used to supply.
+      #
+      # Anything owned by one of these files MUST NOT also appear under
+      # `environment:` below: `environment:` always wins, even when it
+      # interpolates to an empty string, which would silently shadow the file.
+      - path: .env.vaapi
+        required: false
+      - path: .env.whisperx
+        required: false
     environment:
       - PYTHONPATH=/app
       - PYTHONUNBUFFERED=1
@@ -219,18 +240,6 @@ services:
       - REDIS_PASSWORD=${REDIS_PASSWORD}
       - ASSEMBLY_AI_API_KEY=${ASSEMBLY_AI_API_KEY}
       - ASSEMBLY_AI_HTTP_TIMEOUT_SECONDS=${ASSEMBLY_AI_HTTP_TIMEOUT_SECONDS:-900}
-      - TRANSCRIPTION_PROVIDER=${TRANSCRIPTION_PROVIDER:-assemblyai}
-      - WHISPERX_MODEL=${WHISPERX_MODEL:-large-v3}
-      - WHISPERX_DEVICE=${WHISPERX_DEVICE:-auto}
-      - WHISPERX_COMPUTE_TYPE=${WHISPERX_COMPUTE_TYPE:-}
-      - WHISPERX_DIARIZE=${WHISPERX_DIARIZE:-true}
-      # Transcribe by calling the whisperx add-on rather than loading WhisperX
-      # into this container (the heavy torch stack is not in our image). The
-      # single-dash default applies only when .env leaves the name undefined,
-      # so an explicit blank line still selects the in-process path.
-      - WHISPERX_API_URL=${WHISPERX_API_URL-http://whisperx:9000}
-      - WHISPERX_API_TIMEOUT_SECONDS=${WHISPERX_API_TIMEOUT_SECONDS:-3600}
-      - HF_TOKEN=${HF_TOKEN:-}
       - APIFY_API_TOKEN=${APIFY_API_TOKEN}
       - APIFY_YOUTUBE_DOWNLOADER_ACTOR=${APIFY_YOUTUBE_DOWNLOADER_ACTOR:-epctex/youtube-video-downloader}
       - APIFY_YOUTUBE_DEFAULT_QUALITY=${APIFY_YOUTUBE_DEFAULT_QUALITY:-1080}
@@ -238,6 +247,12 @@ services:
       - YOUTUBE_DATA_API_KEY=${YOUTUBE_DATA_API_KEY}
       - YOUTUBE_METADATA_PROVIDER=${YOUTUBE_METADATA_PROVIDER:-yt_dlp}
       - YOUTUBE_DOWNLOAD_PROVIDER=${YOUTUBE_DOWNLOAD_PROVIDER:-yt_dlp}
+      # LLM config stays in the root .env because it is core, not add-on
+      # specific — every provider uses it. That also means it cannot be moved
+      # into .env.llama: these lines outrank any env_file, so a value here
+      # would shadow one there. llama.cpp users set LLM=openai:local and
+      # OPENAI_BASE_URL=http://llama:8080/v1 in .env, and put the *server's*
+      # own configuration (LLAMA_ARG_*) in .env.llama.
       - LLM=${LLM:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
@@ -254,10 +269,6 @@ services:
       - DEFAULT_PROCESSING_MODE=${DEFAULT_PROCESSING_MODE:-fast}
       - FAST_MODE_MAX_CLIPS=${FAST_MODE_MAX_CLIPS:-4}
       - FAST_MODE_TRANSCRIPT_MODEL=${FAST_MODE_TRANSCRIPT_MODEL:-universal}
-      # VIDEO_ENCODER=vaapi also needs the host GPU render nodes in the
-      # container: uncomment the vaapi.yml include at the top of this file.
-      - VIDEO_ENCODER=${VIDEO_ENCODER:-libx264}
-      - VAAPI_DEVICE=${VAAPI_DEVICE:-/dev/dri/renderD128}
       - SELF_HOST=${SELF_HOST:-true}
       - BACKEND_AUTH_SECRET=${BACKEND_AUTH_SECRET}
       - APP_SETTINGS_ENCRYPTION_KEY=${APP_SETTINGS_ENCRYPTION_KEY}
