@@ -66,7 +66,9 @@ export async function POST(request: Request) {
   }
 
   const stripe = getStripeClient();
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3001";
+  // Compose always injects NEXT_PUBLIC_APP_URL, so this fallback only serves
+  // the local non-Docker path, where the frontend runs on 3107.
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3107";
 
   let customerId = user?.stripe_customer_id || null;
   if (!customerId) {
