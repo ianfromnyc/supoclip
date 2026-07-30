@@ -22,6 +22,24 @@ SIGNATURE_HEADER = "x-supoclip-signature"
 API_KEY_HEADER = "x-api-key"
 API_KEY_PREFIX = "sk_"
 
+# Placeholder secrets shipped in this repo's .env.example and docs. They are
+# public knowledge, so anyone could forge signed headers with them; treat them
+# as if no secret were configured at all.
+_PLACEHOLDER_BACKEND_AUTH_SECRETS = frozenset(
+    {
+        "change_me_backend_auth_secret",  # .env.example
+        "replace_this_if_using_hosted_mode",  # docs/setup.md
+        "replace_me",  # docs/configuration.md
+    }
+)
+
+
+def _has_usable_auth_secret(config: Config) -> bool:
+    """True only when a real (non-empty, non-placeholder) signing secret is set."""
+    return bool(config.backend_auth_secret) and (
+        config.backend_auth_secret not in _PLACEHOLDER_BACKEND_AUTH_SECRETS
+    )
+
 
 def hash_api_key(raw_key: str) -> str:
     """Return the SHA-256 hex digest used to look a key up in the database."""
@@ -61,7 +79,7 @@ def get_signed_user_id(request: Request, config: Config) -> str:
     if not user_id or not timestamp or not signature:
         raise HTTPException(status_code=401, detail="Signed authentication required")
 
-    if not config.backend_auth_secret:
+    if not _has_usable_auth_secret(config):
         raise HTTPException(
             status_code=500,
             detail="Server authentication secret is not configured",

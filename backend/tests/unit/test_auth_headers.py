@@ -52,6 +52,42 @@ def test_get_signed_user_id_rejects_expired_signature():
     assert exc.value.status_code == 401
 
 
+@pytest.mark.parametrize(
+    "placeholder",
+    [
+        "change_me_backend_auth_secret",  # .env.example
+        "replace_this_if_using_hosted_mode",  # docs/setup.md
+        "replace_me",  # docs/configuration.md
+    ],
+)
+def test_get_signed_user_id_rejects_public_placeholder_secret(placeholder: str):
+    # Placeholders shipped in the repo's docs are public knowledge, so a
+    # correctly signed header set must still be refused rather than
+    # authenticated.
+    config = Config()
+    config.backend_auth_secret = placeholder
+    timestamp = str(int(time.time()))
+    payload = f"user-1:{timestamp}".encode("utf-8")
+    signature = hmac.new(
+        config.backend_auth_secret.encode("utf-8"), payload, hashlib.sha256
+    ).hexdigest()
+
+    with pytest.raises(HTTPException) as exc:
+        get_signed_user_id(
+            _build_request(
+                {
+                    "x-supoclip-user-id": "user-1",
+                    "x-supoclip-ts": timestamp,
+                    "x-supoclip-signature": signature,
+                }
+            ),
+            config,
+        )
+
+    assert exc.value.status_code == 500
+    assert exc.value.detail == "Server authentication secret is not configured"
+
+
 def test_get_authenticated_user_id_allows_unsigned_fallback_when_enabled():
     config = Config()
     config.backend_auth_secret = "secret"
