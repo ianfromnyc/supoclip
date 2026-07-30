@@ -285,24 +285,64 @@ if [ "$COMPOSE_MAJOR" -lt 2 ] || { [ "$COMPOSE_MAJOR" -eq 2 ] && [ "$COMPOSE_MIN
     exit 1
 fi
 
-# Cloudflare Tunnel ingress is opt-in by uncommenting the tunnel.yml include in
-# docker-compose.yml, which this script must not edit for you — it is your file.
-# So when a token is configured, check whether the service is actually part of
-# the stack and say so plainly if it is not.
-if [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
-    if $DOCKER_COMPOSE config --services 2>/dev/null | grep -qx "cloudflared"; then
-        TUNNEL_ENABLED=1
-        echo -e "${GREEN}Cloudflare Tunnel enabled (docker/options/tunnel.yml)${NC}"
-    else
-        TUNNEL_ENABLED=0
-        echo -e "${YELLOW}Warning: CLOUDFLARE_TUNNEL_TOKEN is set but the tunnel add-on is not enabled${NC}"
-        echo "Uncomment this line at the top of docker-compose.yml to start cloudflared:"
-        echo "  - path: docker/options/tunnel.yml"
-        echo "(the 'include:' line above it must be uncommented too)"
+# Every add-on has two halves that must agree: an uncommented include in
+# docker-compose.yml, and a .env.<option> copied from its .example. Enabling one
+# without the other fails quietly — a service with no configuration, or
+# configuration nothing reads — so check both directions here. This script never
+# edits docker-compose.yml or creates the scoped files: they are yours, and
+# guessing at them is how you end up with a stack nobody can reason about.
+
+COMPOSE_SERVICES="$($DOCKER_COMPOSE config --services 2>/dev/null || true)"
+
+# True when $1's add-on is part of the stack. Tested two ways because they fail
+# differently: the include line is what the docs tell you to edit (and is the
+# only signal for vaapi, which adds no service), while the service list is what
+# Compose actually resolved.
+option_is_enabled() {
+    local option="$1"
+
+    # An uncommented `- path: docker/options/<option>*.yml` line. The llama
+    # variants share one prefix, hence the trailing glob.
+    if grep -qE "^[[:space:]]*-[[:space:]]*path:[[:space:]]*docker/options/${option}[a-z-]*\.yml" \
+        docker-compose.yml 2>/dev/null; then
+        return 0
     fi
+
+    case "$option" in
+        whisperx) printf '%s\n' "$COMPOSE_SERVICES" | grep -qx "whisperx" ;;
+        tunnel)   printf '%s\n' "$COMPOSE_SERVICES" | grep -qx "cloudflared" ;;
+        llama)    printf '%s\n' "$COMPOSE_SERVICES" | grep -qx "llama" ;;
+        *)        return 1 ;;
+    esac
+}
+
+TUNNEL_ENABLED=0
+for option in vaapi whisperx tunnel llama; do
+    scoped_env=".env.${option}"
+    if option_is_enabled "$option"; then
+        [ "$option" = "tunnel" ] && TUNNEL_ENABLED=1
+        if [ -f "$scoped_env" ]; then
+            echo -e "${GREEN}Add-on enabled: ${option} (${scoped_env})${NC}"
+        else
+            echo -e "${YELLOW}Warning: the ${option} add-on is enabled but ${scoped_env} is missing${NC}"
+            echo "It holds that add-on's entire configuration, so without it the service starts"
+            echo "unconfigured. Create it with:"
+            echo "  cp ${scoped_env}.example ${scoped_env}"
+            echo ""
+        fi
+    elif [ -f "$scoped_env" ]; then
+        echo -e "${YELLOW}Warning: ${scoped_env} exists but the ${option} add-on is not enabled${NC}"
+        echo "Uncomment its include line at the top of docker-compose.yml (along with the"
+        echo "'include:' line above it), or delete ${scoped_env} if you no longer want it:"
+        echo "  - path: docker/options/${option}.yml"
+        echo ""
+    fi
+done
+
+if [ "$TUNNEL_ENABLED" -eq 1 ]; then
     if [[ "${NEXT_PUBLIC_APP_URL:-}" != https://* ]] || [[ "${NEXT_PUBLIC_API_URL:-}" != https://* ]] \
         || [[ "${BETTER_AUTH_URL:-}" != https://* ]]; then
-        echo -e "${YELLOW}Warning: CLOUDFLARE_TUNNEL_TOKEN is set but NEXT_PUBLIC_APP_URL / NEXT_PUBLIC_API_URL / BETTER_AUTH_URL are not https:// URLs${NC}"
+        echo -e "${YELLOW}Warning: the tunnel add-on is enabled but NEXT_PUBLIC_APP_URL / NEXT_PUBLIC_API_URL / BETTER_AUTH_URL are not https:// URLs${NC}"
         echo "Public sign-in and uploads will fail until NEXT_PUBLIC_APP_URL, NEXT_PUBLIC_API_URL,"
         echo "BETTER_AUTH_URL and CORS_ORIGINS point at your tunnel hostnames (see .env.example)."
     fi
