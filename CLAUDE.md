@@ -29,6 +29,12 @@ Services and their published host ports (all bound to `127.0.0.1`):
 | `redis` | 6379 | |
 | `postgres` | — | Not published; reachable only on the compose network |
 
+`.env` must contain `COMPOSE_PROFILES=cpu-false,vaapi-true` (see `.env.example`)
+or no backend/worker variant starts. Setting `VAAPI_ENABLED=true` swaps
+`backend`/`worker` for `backend-vaapi`/`worker-vaapi`, which map the host GPU
+render nodes (`/dev/dri`) for VAAPI hardware encoding — pair it with
+`VIDEO_ENCODER=vaapi`.
+
 ### Backend (local)
 
 Uses `uv` (not pip/poetry). Requires Python 3.11+, ffmpeg, running PostgreSQL and Redis.

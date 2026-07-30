@@ -65,6 +65,10 @@ cd supoclip
 Create a `.env` file in the root directory:
 
 ```env
+# Required for Docker: selects the backend/worker variant (see the VAAPI
+# section in .env.example; leave the value as-is)
+COMPOSE_PROFILES=cpu-false,vaapi-true
+
 # Required: Video transcription (not needed with TRANSCRIPTION_PROVIDER=whisperx)
 ASSEMBLY_AI_API_KEY=your_assemblyai_api_key
 

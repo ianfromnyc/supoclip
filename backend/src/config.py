@@ -131,8 +131,8 @@ class Config:
 
         # Video encoder: `libx264` (software, default) or `vaapi` (Intel GPU
         # hardware encoding via h264_vaapi). VAAPI also needs the DRM render
-        # node mounted into the backend and worker containers — see
-        # docker-compose.vaapi.yml.
+        # node mounted into the backend and worker containers — set
+        # VAAPI_ENABLED=true in .env (see docker-compose.yml).
         self.video_encoder = self._normalize_video_encoder(
             os.getenv("VIDEO_ENCODER", "libx264")
         )
