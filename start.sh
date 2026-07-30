@@ -81,19 +81,19 @@ if ! docker info > /dev/null 2>&1; then
     exit 1
 fi
 
-# Check if docker-compose is available
-if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
-    echo -e "${RED}Error: docker-compose is not installed!${NC}"
-    echo "Please install Docker Compose and try again."
-    echo ""
-    exit 1
-fi
-
-# Determine which docker compose command to use
+# Determine which Docker Compose command to use. docker-compose.yml needs
+# Compose v2.20+ (profiles with per-dependency `required: false`), which the
+# legacy v1 `docker-compose` binary cannot read.
 if docker compose version &> /dev/null; then
     DOCKER_COMPOSE="docker compose"
-else
+elif command -v docker-compose &> /dev/null && ! docker-compose version 2>/dev/null | grep -Eq 'version 1\.'; then
     DOCKER_COMPOSE="docker-compose"
+else
+    echo -e "${RED}Error: Docker Compose v2.20 or newer is required!${NC}"
+    echo "The legacy v1 docker-compose binary cannot read this project's compose file."
+    echo "Install the Compose plugin (docker compose) and try again."
+    echo ""
+    exit 1
 fi
 
 echo -e "${GREEN}Starting SupoClip...${NC}"

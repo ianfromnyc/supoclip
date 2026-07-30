@@ -6,7 +6,7 @@ This guide covers the recommended Docker setup, local development mode, and the 
 
 ### Required software
 
-- Docker Desktop or a Docker Engine installation with Compose support
+- Docker Desktop or a Docker Engine installation with Compose v2.20 or newer (the legacy v1 `docker-compose` binary cannot read this project's compose file)
 - Git
 
 ### Required credentials
