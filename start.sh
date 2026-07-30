@@ -81,17 +81,30 @@ if ! docker info > /dev/null 2>&1; then
     exit 1
 fi
 
-# Determine which Docker Compose command to use. docker-compose.yml needs
-# Compose v2.20+ (profiles with per-dependency `required: false`), which the
-# legacy v1 `docker-compose` binary cannot read.
+# Determine which Docker Compose command to use.
 if docker compose version &> /dev/null; then
     DOCKER_COMPOSE="docker compose"
-elif command -v docker-compose &> /dev/null && ! docker-compose version 2>/dev/null | grep -Eq 'version 1\.'; then
+elif command -v docker-compose &> /dev/null; then
     DOCKER_COMPOSE="docker-compose"
 else
-    echo -e "${RED}Error: Docker Compose v2.20 or newer is required!${NC}"
-    echo "The legacy v1 docker-compose binary cannot read this project's compose file."
-    echo "Install the Compose plugin (docker compose) and try again."
+    echo -e "${RED}Error: Docker Compose is not installed!${NC}"
+    echo "Please install the Docker Compose plugin and try again."
+    echo ""
+    exit 1
+fi
+
+# docker-compose.yml needs Compose v2.20+ (profiles with per-dependency
+# `required: false`), which older v2 releases and the legacy v1 binary
+# cannot parse. Non-numeric version output is treated as too old.
+COMPOSE_VERSION=$($DOCKER_COMPOSE version --short 2>/dev/null || true)
+COMPOSE_VERSION=${COMPOSE_VERSION#v}
+COMPOSE_MAJOR=$(echo "$COMPOSE_VERSION" | cut -d. -f1)
+COMPOSE_MINOR=$(echo "$COMPOSE_VERSION" | cut -d. -f2)
+case "$COMPOSE_MAJOR" in ''|*[!0-9]*) COMPOSE_MAJOR=0 ;; esac
+case "$COMPOSE_MINOR" in ''|*[!0-9]*) COMPOSE_MINOR=0 ;; esac
+if [ "$COMPOSE_MAJOR" -lt 2 ] || { [ "$COMPOSE_MAJOR" -eq 2 ] && [ "$COMPOSE_MINOR" -lt 20 ]; }; then
+    echo -e "${RED}Error: Docker Compose v2.20 or newer is required (found ${COMPOSE_VERSION:-unknown})!${NC}"
+    echo "Update Docker Desktop or the Docker Compose plugin and try again."
     echo ""
     exit 1
 fi
