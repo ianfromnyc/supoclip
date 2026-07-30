@@ -226,7 +226,9 @@ For production use:
 
 1. Change `BETTER_AUTH_SECRET` to a secure random string
 2. Use strong database passwords
-3. Enable HTTPS with a reverse proxy (nginx/Caddy)
+3. Enable HTTPS with a reverse proxy (nginx/Caddy) or Cloudflare Tunnel
+   - For the tunnel, set `CLOUDFLARE_TUNNEL_TOKEN` in `.env` and follow
+     "Public access with Cloudflare Tunnel" in `docs/setup.md`
 4. Set up persistent volumes for data
 5. Configure backup strategies
 

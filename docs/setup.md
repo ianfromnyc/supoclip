@@ -206,6 +206,78 @@ For anything beyond local experimentation:
 - If using DataFast, set `NEXT_PUBLIC_DATAFAST_DOMAIN` to the deployed root domain you want tracked
 - For hosted billing, create and verify both Stripe monthly prices before deploy: Pro at `$10/month` and Scale at `$50/month`
 
+## Public access with Cloudflare Tunnel (optional)
+
+If you want SupoClip reachable from the internet without opening ports or
+running your own reverse proxy, the Compose stack ships an optional
+`cloudflared` service behind the `tunnel` profile. It makes an outbound-only
+connection to Cloudflare, so no port forwarding and no firewall holes are
+needed. TLS terminates at Cloudflare's edge and the hop from the edge to your
+containers travels inside the tunnel over plain HTTP.
+
+### 1. Create the tunnel in Cloudflare
+
+Ingress rules live in the Cloudflare dashboard, not in this repository:
+
+1. Open Cloudflare Zero Trust and go to **Networks → Tunnels → Create a tunnel**.
+2. Choose the **Cloudflared** connector and give the tunnel a name.
+3. Copy the tunnel token that the dashboard shows you.
+4. In the tunnel's **Public Hostname** tab, add two hostnames on your zone:
+   - `app.<your-domain>` → service **HTTP** `frontend:3107`
+   - `api.<your-domain>` → service **HTTP** `backend:8000`
+
+Those are container names and container ports on the Compose network, not the
+host's `127.0.0.1:3001` / `127.0.0.1:8000` published ports. The API hostname is
+required because the browser talks to the backend directly for video uploads
+and caption templates.
+
+### 2. Add the tunnel settings to `.env`
+
+```env
+CLOUDFLARE_TUNNEL_TOKEN=your_tunnel_token
+
+NEXT_PUBLIC_APP_URL=https://app.example.com
+NEXT_PUBLIC_API_URL=https://api.example.com
+BETTER_AUTH_URL=https://app.example.com
+CORS_ORIGINS=https://app.example.com,http://localhost:3107,http://sp.localhost:3107,http://supoclip.localhost:3107
+```
+
+### 3. Start the stack with the tunnel
+
+`./start.sh` detects `CLOUDFLARE_TUNNEL_TOKEN` and enables the profile for you
+by exporting `COMPOSE_PROFILES=tunnel`. It also warns if `NEXT_PUBLIC_APP_URL`
+or `NEXT_PUBLIC_API_URL` are not `https://` URLs.
+
+```bash
+./start.sh
+```
+
+Manual equivalent:
+
+```bash
+docker compose --profile tunnel up -d --build
+```
+
+### 4. Verify
+
+```bash
+docker compose --profile tunnel ps
+docker compose logs cloudflared
+```
+
+`cloudflared` should report healthy, and its logs should contain
+`Registered tunnel connection`. Then browse to `https://app.<your-domain>`.
+
+### Caveats
+
+- `NEXT_PUBLIC_*` values are baked into the production frontend image at build
+  time. After changing them, re-run `./start.sh` so the image is rebuilt.
+- Setting `BETTER_AUTH_URL` to an `https://` origin means signing in through
+  `http://localhost:3001` no longer issues working cookies. That is the expected
+  trade-off; use the tunnel hostname instead.
+- A plain `docker compose down` from a shell without the profile leaves the
+  `cloudflared` container running. Use `docker compose --profile tunnel down`.
+
 ## Useful Commands
 
 ### Start or rebuild

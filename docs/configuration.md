@@ -47,6 +47,7 @@ The backend can infer a default LLM from whichever API key is present, but setti
 | `NEXT_PUBLIC_LANDING_ONLY_MODE` | `false` | Restricts the UI to the landing page only |
 | `TEMP_DIR` | `/app/uploads` in Docker | Temporary backend working directory for uploads and processing |
 | `CORS_ORIGINS` | `http://localhost:3107,http://sp.localhost:3107` | Allowed browser origins for backend requests, including direct browser video uploads. The built-in default lives in `Config.cors_origins` (`backend/src/config.py`); `.env.example` additionally lists `http://supoclip.localhost:3107` |
+| `CLOUDFLARE_TUNNEL_TOKEN` | empty | Cloudflare Tunnel connector token. When set, `./start.sh` enables the Compose `tunnel` profile so the optional `cloudflared` service provides public ingress. See [Setup](./setup.md#public-access-with-cloudflare-tunnel-optional) |
 
 ## Analytics Settings
 
