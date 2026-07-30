@@ -10,8 +10,8 @@ import re
 
 from pydantic_ai import Agent
 from pydantic_ai.models import Model
-from pydantic_ai.models.ollama import OllamaModel
-from pydantic_ai.providers.ollama import OllamaProvider
+from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic import AliasChoices, BaseModel, Field, field_validator
 
 from .config import Config, get_config
@@ -315,6 +315,15 @@ _transcript_agent_signature: Optional[tuple[str | None, ...]] = None
 
 SUPPORTED_LLM_PROVIDERS = {"google", "google-gla", "openai", "anthropic", "ollama"}
 
+# Providers served by the unified OpenAI-compatible client. `ollama` is a
+# deprecated alias for `openai` kept so existing configs keep working.
+OPENAI_COMPATIBLE_PROVIDERS = {"openai", "ollama"}
+DEPRECATED_LLM_PROVIDER_ALIASES = {"ollama": "openai"}
+
+# Providers already warned about, so the deprecation notice is logged once per
+# process instead of on every agent rebuild.
+_deprecated_provider_alias_warned: set[str] = set()
+
 
 def _split_llm_name(model_name: str) -> tuple[str, str | None]:
     if ":" not in model_name:
@@ -366,23 +375,59 @@ def _get_missing_llm_key_error(model_name: str, runtime_config: Config) -> Optio
     return None
 
 
+def _warn_once_about_deprecated_provider_alias(provider: str) -> None:
+    """Nudge deployments off a deprecated provider prefix, once per process."""
+    replacement = DEPRECATED_LLM_PROVIDER_ALIASES.get(provider)
+    if not replacement or provider in _deprecated_provider_alias_warned:
+        return
+
+    _deprecated_provider_alias_warned.add(provider)
+    logger.warning(
+        "LLM=%s:* is deprecated and now runs through the unified "
+        "OpenAI-compatible client. Switch to %s:<model> and set OPENAI_BASE_URL "
+        "(plus OPENAI_API_KEY if the endpoint needs one).",
+        provider,
+        replacement,
+    )
+
+
+def _resolve_openai_compatible_endpoint(
+    provider: str, runtime_config: Config
+) -> tuple[str | None, str | None]:
+    """Resolve the (base_url, api_key) pair for an OpenAI-compatible endpoint.
+
+    `openai:*` uses OPENAI_BASE_URL/OPENAI_API_KEY; a `None` base URL means
+    "let the SDK use the published OpenAI endpoint". The deprecated `ollama:*`
+    alias falls back to the legacy OLLAMA_* variables (and, failing those, the
+    default local Ollama URL) so existing deployments keep working unchanged.
+    """
+    base_url = runtime_config.openai_base_url
+    api_key = runtime_config.openai_api_key
+
+    if provider == "ollama":
+        base_url = base_url or runtime_config.resolve_ollama_base_url()
+        api_key = api_key or runtime_config.ollama_api_key
+
+    return base_url, api_key
+
+
 def _build_transcript_model(runtime_config: Config) -> Model | str:
     provider, provider_model_name = _split_llm_name(runtime_config.llm)
-    if provider != "ollama":
+    if provider not in OPENAI_COMPATIBLE_PROVIDERS:
         return runtime_config.llm
 
     if not provider_model_name:
         raise RuntimeError(
-            "Selected LLM provider is Ollama, but no model name was provided. "
-            "Use the format ollama:<model>, for example ollama:gpt-oss:20b."
+            f"Selected LLM is missing a model name. "
+            f"Use the format {provider}:<model>, for example openai:gpt-5.2."
         )
 
-    return OllamaModel(
+    _warn_once_about_deprecated_provider_alias(provider)
+    base_url, api_key = _resolve_openai_compatible_endpoint(provider, runtime_config)
+
+    return OpenAIChatModel(
         provider_model_name,
-        provider=OllamaProvider(
-            base_url=runtime_config.resolve_ollama_base_url(),
-            api_key=runtime_config.ollama_api_key,
-        ),
+        provider=OpenAIProvider(base_url=base_url, api_key=api_key),
     )
 
 
