@@ -43,7 +43,7 @@ The backend can infer a default LLM from whichever API key is present, but setti
 | Variable | Default | Purpose |
 |---|---|---|
 | `BETTER_AUTH_SECRET` | Dev secret | Frontend auth secret. `./start.sh` replaces the `.env.example` placeholder with an `openssl rand -hex 32` value; set it yourself if you run `docker compose` directly |
-| `DISABLE_SIGN_UP` | `true` | Blocks new user registrations. Set to `false` to let the public sign up. Accepted "on" values are `1`, `true`, and `yes` |
+| `DISABLE_SIGN_UP` | `true` | Blocks new user registrations. The default is enforced in the frontend code, so sign-ups stay closed on every deployment method — Compose, plain Node, or Vercel — even when the variable is unset. Only an explicit `false`, `0`, or `no` (case-insensitive) opens registration |
 | `FRONTEND_BUILD_TARGET` | `development` | Frontend Dockerfile stage Compose builds. Use `runner` for a public deployment so you ship the standalone production build instead of a Next.js dev server |
 | `NODE_ENV` | `development` | Runtime mode for the `frontend` container. Set to `production` alongside `FRONTEND_BUILD_TARGET=runner` |
 | `NEXT_PUBLIC_LANDING_ONLY_MODE` | `false` | Restricts the UI to the landing page only |

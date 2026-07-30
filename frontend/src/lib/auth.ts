@@ -4,9 +4,23 @@ import { PrismaClient } from "../generated/prisma";
 import { nextCookies } from "better-auth/next-js";
 
 const prisma = new PrismaClient();
-const disableSignUp = ["1", "true", "yes"].includes(
-  (process.env.DISABLE_SIGN_UP ?? "").toLowerCase()
-);
+
+// The only values that open public registration. Anything else — including an
+// unset variable, an empty string, or a typo — leaves sign-ups closed.
+const SIGN_UP_OPT_OUT_VALUES = ["0", "false", "no"];
+
+/**
+ * Decides whether self-service registration is closed.
+ *
+ * Sign-ups are closed unless the operator explicitly opts out, so a deployment
+ * that forgets to set DISABLE_SIGN_UP fails safe instead of exposing an open
+ * registration form.
+ */
+export function isSignUpDisabled(value: string | undefined): boolean {
+  return !SIGN_UP_OPT_OUT_VALUES.includes((value ?? "").trim().toLowerCase());
+}
+
+const disableSignUp = isSignUpDisabled(process.env.DISABLE_SIGN_UP);
 
 function toOrigin(value?: string) {
   if (!value) {

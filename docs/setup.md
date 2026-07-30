@@ -128,8 +128,8 @@ to `127.0.0.1`, and `postgres` publishes no port at all:
 After the stack is up:
 
 1. Load the homepage at `http://localhost:3001`.
-2. Create an account or sign in. Sign-ups are disabled by default
-   (`DISABLE_SIGN_UP=true`); set it to `false` in `.env` and restart the
+2. Create an account or sign in. Sign-ups are disabled by default, including when
+   `DISABLE_SIGN_UP` is unset; set it to `false` in `.env` and restart the
    frontend to register the first account, then close it again if you like.
 3. Submit a YouTube URL or upload a video file.
 4. Open the task page and confirm progress updates appear.
@@ -208,8 +208,9 @@ For anything beyond local experimentation:
   `APP_SETTINGS_ENCRYPTION_KEY` hold real random values, not the `.env.example`
   placeholders. `./start.sh` generates them for you; direct `docker compose`
   users must set them by hand
-- Decide whether `DISABLE_SIGN_UP` stays `true` (the default) or is opened to the
-  public
+- Decide whether sign-ups stay closed (the default on every deployment method,
+  even with `DISABLE_SIGN_UP` unset) or are opened to the public with an explicit
+  `DISABLE_SIGN_UP=false`
 - Put the app behind HTTPS
 - Set `NEXT_PUBLIC_APP_URL` to your deployed frontend origin
 - Use persistent storage and backups for PostgreSQL
@@ -264,10 +265,11 @@ frontend from the `development` Dockerfile target and runs it with
 Next.js dev server: unminified sources and full stack traces on error pages.
 `FRONTEND_BUILD_TARGET=runner` selects the standalone production stage instead.
 
-Sign-ups stay closed unless you open them: `DISABLE_SIGN_UP` defaults to `true`,
-so a hostname that resolves does not by itself accept registrations. Set
-`DISABLE_SIGN_UP=false` to let the public register, and consider putting the app
-hostname behind Cloudflare Access rather than opening sign-ups at all.
+Sign-ups stay closed unless you open them: the frontend closes registration
+unless `DISABLE_SIGN_UP` is explicitly `false`, so a hostname that resolves does
+not by itself accept registrations. Set `DISABLE_SIGN_UP=false` to let the public
+register, and consider putting the app hostname behind Cloudflare Access rather
+than opening sign-ups at all.
 
 The three auth secrets need no manual attention here — `./start.sh` replaces
 `BACKEND_AUTH_SECRET`, `BETTER_AUTH_SECRET`, and `APP_SETTINGS_ENCRYPTION_KEY`

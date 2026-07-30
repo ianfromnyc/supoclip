@@ -124,7 +124,8 @@ The page also loads billing summary data so the user can see plan and usage info
 
 SupoClip uses Better Auth with an email and password flow backed by PostgreSQL through Prisma.
 
-If `DISABLE_SIGN_UP=true`, sign-up is disabled for new users.
+Sign-up is disabled for new users unless `DISABLE_SIGN_UP` is explicitly set to
+`false`. Leaving the variable unset keeps registration closed.
 
 ### Admin Dashboard: `/admin`
 

@@ -65,8 +65,9 @@ LLM=openai:gpt-4
 - **Backend API**: http://localhost:8000
 - **API Documentation**: http://localhost:8000/docs
 
-Sign-ups are disabled by default. To create your first account, set
-`DISABLE_SIGN_UP=false` in `.env`, restart, register, and set it back to `true`.
+Sign-ups are disabled by default, including when `DISABLE_SIGN_UP` is unset. To
+create your first account, set `DISABLE_SIGN_UP=false` in `.env`, restart,
+register, and set it back to `true`.
 
 ## Manual Docker Commands
 
@@ -100,7 +101,7 @@ docker-compose up -d --build
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `BETTER_AUTH_SECRET` | dev secret | Auth secret. `./start.sh` generates a random one for you |
-| `DISABLE_SIGN_UP` | `true` | Sign-ups are closed by default; set to `false` to let people register |
+| `DISABLE_SIGN_UP` | `true` | Sign-ups are closed by default on every deployment method, even when the variable is unset; set it explicitly to `false` to let people register |
 | `GOOGLE_API_KEY` | - | For Google Gemini models |
 | `ANTHROPIC_API_KEY` | - | For Claude models |
 | `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | For local/self-hosted Ollama endpoint |
@@ -240,7 +241,7 @@ For production use:
 4. Enable HTTPS with a reverse proxy (nginx/Caddy) or Cloudflare Tunnel
    - For the tunnel, set `CLOUDFLARE_TUNNEL_TOKEN` in `.env` and follow
      "Public access with Cloudflare Tunnel" in `docs/setup.md`
-5. Keep `DISABLE_SIGN_UP=true` unless you want anyone to register
+5. Leave sign-ups closed (the default) unless you want anyone to register
 6. Set up persistent volumes for data
 7. Configure backup strategies
 
