@@ -5,8 +5,13 @@ from pydantic_ai.models.openai import OpenAIChatModel
 
 from src import ai
 from src import config as config_module
-from src.ai import _build_transcript_model, _get_missing_llm_key_error
-from src.config import Config
+from src.ai import (
+    _build_transcript_model,
+    _build_transcript_model_settings,
+    _get_missing_llm_key_error,
+    get_transcript_agent,
+)
+from src.config import Config, set_config_override
 
 
 @pytest.fixture(autouse=True)
@@ -30,6 +35,11 @@ def clean_llm_env(monkeypatch):
         monkeypatch.delenv(name, raising=False)
     # The deprecation warning fires once per process; reset it per test.
     monkeypatch.setattr(ai, "_deprecated_provider_alias_warned", set())
+    # Drop any agent cached by an earlier test so signatures start clean.
+    monkeypatch.setattr(ai, "_transcript_agent", None)
+    monkeypatch.setattr(ai, "_transcript_agent_signature", None)
+    yield
+    set_config_override(None)
 
 
 def _base_url_of(model: OpenAIChatModel) -> str:
@@ -134,6 +144,59 @@ def test_unknown_service_tier_is_a_config_error(monkeypatch):
     assert "OPENAI_SERVICE_TIER" in error
     assert "turbo" in error
     assert "flex" in error
+
+
+def test_service_tier_is_sent_with_each_request_when_set(monkeypatch):
+    monkeypatch.setenv("LLM", "openai:gpt-5.2")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("OPENAI_SERVICE_TIER", "Flex")
+
+    settings = _build_transcript_model_settings(Config())
+
+    # Normalized, because OpenAI only accepts the lowercase spellings.
+    assert settings == {"openai_service_tier": "flex"}
+
+
+def test_no_model_settings_when_service_tier_is_unset(monkeypatch):
+    monkeypatch.setenv("LLM", "openai:gpt-5.2")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    assert _build_transcript_model_settings(Config()) is None
+
+
+def test_service_tier_is_not_sent_to_non_openai_providers(monkeypatch):
+    monkeypatch.setenv("LLM", "anthropic:claude-4-sonnet")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("OPENAI_SERVICE_TIER", "flex")
+
+    assert _build_transcript_model_settings(Config()) is None
+
+
+def test_agent_cache_is_invalidated_when_the_base_url_changes(monkeypatch):
+    monkeypatch.setenv("LLM", "openai:qwen3-coder")
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://first.example/v1")
+
+    set_config_override(Config())
+    first = get_transcript_agent()
+    assert get_transcript_agent() is first
+
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://second.example/v1")
+    set_config_override(Config())
+
+    assert get_transcript_agent() is not first
+
+
+def test_agent_cache_is_invalidated_when_the_service_tier_changes(monkeypatch):
+    monkeypatch.setenv("LLM", "openai:qwen3-coder")
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://first.example/v1")
+
+    set_config_override(Config())
+    first = get_transcript_agent()
+
+    monkeypatch.setenv("OPENAI_SERVICE_TIER", "flex")
+    set_config_override(Config())
+
+    assert get_transcript_agent() is not first
 
 
 def test_hosted_openai_keeps_the_published_endpoint(monkeypatch):

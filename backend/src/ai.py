@@ -10,7 +10,7 @@ import re
 
 from pydantic_ai import Agent
 from pydantic_ai.models import Model
-from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic import AliasChoices, BaseModel, Field, field_validator
 
@@ -457,14 +457,38 @@ def _build_transcript_model(runtime_config: Config) -> Model | str:
     )
 
 
+def _build_transcript_model_settings(
+    runtime_config: Config,
+) -> OpenAIChatModelSettings | None:
+    """Per-request settings for the OpenAI-compatible client.
+
+    OpenAI takes the service tier as a `service_tier` body parameter on every
+    chat-completions call, so it belongs in model settings rather than in the
+    client. Returning None when unset keeps the field out of the request, which
+    OpenAI treats the same as `auto`.
+    """
+    provider, _ = _split_llm_name(runtime_config.llm)
+    if provider not in OPENAI_COMPATIBLE_PROVIDERS:
+        return None
+
+    service_tier = (runtime_config.openai_service_tier or "").strip().lower()
+    if not service_tier:
+        return None
+
+    return OpenAIChatModelSettings(openai_service_tier=service_tier)
+
+
 def get_transcript_agent() -> Agent[None, TranscriptAnalysis]:
     """Get or create the transcript analysis agent (lazy initialization)."""
     global _transcript_agent, _transcript_agent_signature
     runtime_config = get_config()
-    provider, _ = _split_llm_name(runtime_config.llm)
+    # Every input that shapes the agent belongs here, or an admin changing a
+    # setting at runtime would keep talking to the previously built client.
     signature = (
         runtime_config.llm,
         runtime_config.openai_api_key,
+        runtime_config.openai_base_url,
+        runtime_config.openai_service_tier,
         runtime_config.google_api_key,
         runtime_config.anthropic_api_key,
         runtime_config.ollama_base_url,
@@ -478,12 +502,13 @@ def get_transcript_agent() -> Agent[None, TranscriptAnalysis]:
 
         _transcript_agent = Agent[None, TranscriptAnalysis](
             model=_build_transcript_model(runtime_config),
+            model_settings=_build_transcript_model_settings(runtime_config),
             output_type=TranscriptAnalysis,
             system_prompt=transcript_analysis_system_prompt,
-            # Some local Ollama/OpenAI-compatible endpoints can return formatted
-            # prose before settling on schema-valid JSON. Keep retries limited
-            # while still allowing enough repair attempts for local models.
-            output_retries=2 if provider == "ollama" else 2,
+            # Local OpenAI-compatible endpoints can return formatted prose
+            # before settling on schema-valid JSON. Keep retries limited while
+            # still allowing enough repair attempts for local models.
+            output_retries=2,
         )
         _transcript_agent_signature = signature
     return _transcript_agent
