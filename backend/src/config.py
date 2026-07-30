@@ -54,6 +54,15 @@ class Config:
             (os.getenv("WHISPERX_COMPUTE_TYPE") or "").strip() or None
         )
         self.whisperx_diarize = self._get_bool_env("WHISPERX_DIARIZE", True)
+        # Base URL of a whisper-asr-webservice instance (e.g. http://whisperx:9000).
+        # Set means "transcribe over HTTP"; unset means "run WhisperX in this
+        # process", which needs the optional `whisperx` extra installed.
+        self.whisperx_api_url = self._get_optional_env("WHISPERX_API_URL")
+        # Upper bound on one transcription request. Generous because a long
+        # video on a CPU-only host can take the better part of an hour.
+        self.whisperx_api_timeout_seconds = int(
+            os.getenv("WHISPERX_API_TIMEOUT_SECONDS", "3600")
+        )
         # Hugging Face token; needed to download pyannote diarization models.
         self.hf_token = self._get_runtime_setting("HF_TOKEN")
         self.pexels_api_key = self._get_runtime_setting("PEXELS_API_KEY")

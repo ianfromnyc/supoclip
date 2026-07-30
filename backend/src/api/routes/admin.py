@@ -23,6 +23,43 @@ from ...runtime_settings import (
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
+def transcription_provider_error(raw_provider: str) -> str | None:
+    """Reject an unusable TRANSCRIPTION_PROVIDER at save time.
+
+    Returns an actionable message, or None when the value is fine. Catching it
+    here beats letting the first transcription task blow up mid-run.
+    """
+    provider = (raw_provider or "").strip().lower()
+
+    if not provider:
+        return None
+
+    if provider not in ("assemblyai", "whisperx"):
+        return (
+            "TRANSCRIPTION_PROVIDER must be 'assemblyai' or 'whisperx', "
+            f"got '{provider}'."
+        )
+
+    if provider != "whisperx":
+        return None
+
+    # WhisperX runs either over HTTP against a whisper-asr-webservice instance
+    # (the Docker add-on) or in this process from the optional extra. find_spec
+    # only checks availability — it never imports the heavy torch stack into the
+    # API process or blocks the event loop.
+    if get_config().whisperx_api_url:
+        return None
+    if importlib.util.find_spec("whisperx") is not None:
+        return None
+
+    return (
+        "TRANSCRIPTION_PROVIDER=whisperx needs either WHISPERX_API_URL pointing "
+        "at a WhisperX webservice (uncomment the docker/options/whisperx.yml "
+        "include in docker-compose.yml) or the backend's optional extra "
+        "installed locally: `uv sync --extra whisperx`."
+    )
+
+
 SETTING_METADATA = {
     "ASSEMBLY_AI_API_KEY": {
         "label": "AssemblyAI API key",
@@ -31,7 +68,11 @@ SETTING_METADATA = {
     },
     "TRANSCRIPTION_PROVIDER": {
         "label": "Transcription provider",
-        "description": "assemblyai (cloud, default) or whisperx (local, needs the whisperx extra installed).",
+        "description": (
+            "assemblyai (cloud, default) or whisperx (local — needs either "
+            "WHISPERX_API_URL pointing at a WhisperX webservice, or the "
+            "whisperx extra installed)."
+        ),
         "input_type": "text",
     },
     "HF_TOKEN": {
@@ -222,28 +263,11 @@ async def update_runtime_settings(
             raise HTTPException(status_code=400, detail=config_error)
 
     if "TRANSCRIPTION_PROVIDER" in payload.updates:
-        provider = payload.updates["TRANSCRIPTION_PROVIDER"].strip().lower()
-        if provider and provider not in ("assemblyai", "whisperx"):
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "TRANSCRIPTION_PROVIDER must be 'assemblyai' or 'whisperx', "
-                    f"got '{provider}'."
-                ),
-            )
-        if provider == "whisperx" and importlib.util.find_spec("whisperx") is None:
-            # Fail fast if the optional whisperx extra is missing instead of
-            # letting the first transcription task blow up mid-run. find_spec
-            # only checks availability — it never imports the heavy torch stack
-            # into the API process or blocks the event loop.
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "TRANSCRIPTION_PROVIDER=whisperx but the whisperx package "
-                    "is not installed. Install the backend's optional extra "
-                    "first: `uv sync --extra whisperx`."
-                ),
-            )
+        provider_error = transcription_provider_error(
+            payload.updates["TRANSCRIPTION_PROVIDER"]
+        )
+        if provider_error:
+            raise HTTPException(status_code=400, detail=provider_error)
 
     for setting_key, raw_value in payload.updates.items():
         value = raw_value.strip()

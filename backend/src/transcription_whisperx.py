@@ -16,6 +16,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Tuple
 
+import httpx
+
 from .config import get_config
 
 logger = logging.getLogger(__name__)
@@ -210,6 +212,97 @@ def _build_transcript(segments: List[Dict[str, Any]]) -> SimpleNamespace:
     )
 
 
+def _transcript_from_asr_payload(payload: Dict[str, Any]) -> SimpleNamespace:
+    """Map one /asr?output=json response onto our AssemblyAI-shaped transcript.
+
+    The webservice returns whisperx's own aligned result — the same
+    {"segments": [{start, end, text, words: [...]}, ...]} structure the
+    in-process path produces — so the conversion is exactly the one already
+    used there, and both providers stay byte-for-byte interchangeable
+    downstream.
+    """
+    segments = payload.get("segments") or []
+    transcript = _build_transcript(segments)
+
+    if not transcript.words:
+        raise RuntimeError(
+            "The WhisperX webservice returned no transcript segments. Check its "
+            "logs (`docker compose logs whisperx`) — a model that failed to load "
+            "answers with an empty result."
+        )
+
+    return transcript
+
+
+def _transcribe_via_webservice(video_path: Path, config) -> str:
+    """Transcribe by POSTing the media to a whisper-asr-webservice instance.
+
+    Used instead of the in-process path whenever WHISPERX_API_URL is set, which
+    is how the Docker stack runs it: the heavy torch/whisperx stack lives in the
+    add-on container (docker/options/whisperx.yml) rather than in our image.
+    """
+    from .video_utils import cache_transcript_data, format_transcript_for_analysis
+
+    base_url = config.whisperx_api_url.rstrip("/")
+    endpoint = f"{base_url}/asr"
+    params = {
+        "task": "transcribe",
+        "output": "json",
+        "word_timestamps": "true",
+        # Speaker labels need the service's own HF_TOKEN; it silently returns
+        # unlabelled words when that is missing, which we handle either way.
+        "diarize": "true" if config.whisperx_diarize else "false",
+    }
+
+    logger.info(
+        "Starting WhisperX transcription over HTTP (%s, diarize=%s)",
+        endpoint,
+        config.whisperx_diarize,
+    )
+
+    try:
+        with open(video_path, "rb") as media:
+            response = httpx.post(
+                endpoint,
+                params=params,
+                files={"audio_file": (video_path.name, media, "application/octet-stream")},
+                timeout=config.whisperx_api_timeout_seconds,
+            )
+        response.raise_for_status()
+        payload = response.json()
+    except httpx.HTTPStatusError as exc:
+        raise RuntimeError(
+            f"The WhisperX webservice at {base_url} rejected the transcription "
+            f"request with HTTP {exc.response.status_code}. Check its logs with "
+            "`docker compose logs whisperx`."
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise RuntimeError(
+            f"Could not reach the WhisperX webservice at {base_url} ({exc}). "
+            "Enable it by uncommenting the docker/options/whisperx.yml include "
+            "in docker-compose.yml, or point WHISPERX_API_URL at your own "
+            "instance (unset it to run WhisperX in-process instead)."
+        ) from exc
+    except ValueError as exc:
+        # raise_for_status() passed but the body was not JSON.
+        raise RuntimeError(
+            f"The WhisperX webservice at {base_url} returned a non-JSON "
+            "response; expected the output=json format."
+        ) from exc
+
+    transcript = _transcript_from_asr_payload(payload)
+    formatted_lines = format_transcript_for_analysis(transcript)
+    cache_transcript_data(video_path, transcript)
+
+    formatted = "\n".join(formatted_lines)
+    logger.info(
+        "WhisperX transcript formatted: %s segments, %s chars",
+        len(formatted_lines),
+        len(formatted),
+    )
+    return formatted
+
+
 def _apply_diarization(aligned, audio, device: str, hf_token: str):
     """Run pyannote diarization and attach per-word speaker labels."""
     # whisperx's __init__ does not re-export DiarizationPipeline, so import
@@ -226,12 +319,26 @@ def _apply_diarization(aligned, audio, device: str, hf_token: str):
 
 
 def get_video_transcript_whisperx(video_path: Path) -> str:
-    """Transcribe locally with WhisperX; formatted output + cache match AssemblyAI."""
+    """Transcribe with WhisperX; formatted output + cache match AssemblyAI.
+
+    Two ways to run it, picked by WHISPERX_API_URL: over HTTP against a
+    whisper-asr-webservice container (how the Docker stack does it), or inside
+    this process (bare metal, needs the optional `whisperx` extra).
+    """
+    config = get_config()
+
+    if config.whisperx_api_url:
+        return _transcribe_via_webservice(video_path, config)
+
+    return _transcribe_in_process(video_path, config)
+
+
+def _transcribe_in_process(video_path: Path, config) -> str:
+    """Run the WhisperX pipeline in this process, on this machine's CPU/GPU."""
     # Imported here (not at module top) purely for clarity — video_utils is
     # fully loaded by the time its dispatcher calls into this module.
     from .video_utils import cache_transcript_data, format_transcript_for_analysis
 
-    config = get_config()
     whisperx = _import_whisperx()
     device = _resolve_device(config.whisperx_device)
     # float16 needs GPU support; int8 is the sensible CPU default.

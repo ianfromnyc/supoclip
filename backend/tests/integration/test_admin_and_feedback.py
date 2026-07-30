@@ -137,6 +137,7 @@ async def test_runtime_settings_reject_whisperx_when_extra_not_installed(
     )
 
     assert response.status_code == 400
+    assert "WHISPERX_API_URL" in response.json()["detail"]
     assert "uv sync --extra whisperx" in response.json()["detail"]
 
 
