@@ -1,0 +1,25 @@
+# VAAPI hardware video encoding (Intel/AMD GPUs).
+#
+# Enable by uncommenting this file's include line in docker-compose.yml, and
+# pair it with VIDEO_ENCODER=vaapi in .env — this file only hands the container
+# the GPU, it does not switch the encoder. (An include can add keys to a service
+# but never override the root file's values, so VIDEO_ENCODER stays a .env
+# setting.) Pick a specific render node with VAAPI_DEVICE when the host has
+# more than one GPU.
+#
+# Kept out of the base stack because a `devices:` entry fails container creation
+# outright on hosts without /dev/dri.
+services:
+  backend:
+    devices:
+      # The whole directory is mapped rather than a single node so
+      # VAAPI_DEVICE can name any of them. `ls -l /dev/dri/by-path` shows which
+      # PCI device backs each node, or probe one with
+      # `vainfo --display drm --device /dev/dri/renderD129`.
+      - /dev/dri:/dev/dri
+
+  # The worker does the actual encoding, so it needs the GPU too — the backend
+  # only re-encodes on clip edits and exports.
+  worker:
+    devices:
+      - /dev/dri:/dev/dri

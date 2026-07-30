@@ -11,6 +11,11 @@ temp/
 *.m4a
 frontend/e2e/.seed.json
 
+# Your own copy of the stack, made with
+# `cp docker-compose.yml.example docker-compose.yml`. Keeping it untracked is
+# what lets you uncomment add-on includes without fighting every `git pull`.
+docker-compose.yml
+
 # local demo / scratch artifacts (not for the repo)
 backend/demo_clips/
 backend/demo_clips_*.log
