@@ -444,7 +444,7 @@ def _build_transcript_model(runtime_config: Config) -> Model | str:
 
     if not provider_model_name:
         raise RuntimeError(
-            f"Selected LLM is missing a model name. "
+            "Selected LLM is missing a model name. "
             f"Use the format {provider}:<model>, for example openai:gpt-5.2."
         )
 
