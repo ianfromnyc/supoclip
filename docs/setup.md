@@ -222,6 +222,12 @@ docker-compose logs -f backend
 docker-compose logs -f worker
 ```
 
+With `VAAPI_ENABLED=true` in `.env` the backend and worker run as the
+`backend-vaapi` and `worker-vaapi` services, so target those names instead
+(e.g. `docker-compose logs -f worker-vaapi`). The container names
+(`supoclip-backend`, `supoclip-worker`) are the same in both modes, so plain
+`docker logs supoclip-worker` always works.
+
 ### Stop services
 
 ```bash

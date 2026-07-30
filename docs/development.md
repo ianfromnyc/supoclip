@@ -291,6 +291,9 @@ docker-compose logs -f postgres
 docker-compose logs -f redis
 ```
 
+With `VAAPI_ENABLED=true` in `.env`, use the `backend-vaapi` and
+`worker-vaapi` service names instead — container names are unchanged.
+
 ## Codebase Conventions
 
 ### Backend
