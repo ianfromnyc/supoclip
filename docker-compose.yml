@@ -31,6 +31,9 @@ services:
       - NEXT_PUBLIC_SELF_HOST=${SELF_HOST:-true}
       - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:3107}
       - NEXT_PUBLIC_LANDING_ONLY_MODE=${NEXT_PUBLIC_LANDING_ONLY_MODE:-false}
+      # Sign-ups are closed unless explicitly opened, so a publicly exposed
+      # deployment does not accept strangers by default.
+      - DISABLE_SIGN_UP=${DISABLE_SIGN_UP:-true}
       - BACKEND_AUTH_SECRET=${BACKEND_AUTH_SECRET}
       - APP_SETTINGS_ENCRYPTION_KEY=${APP_SETTINGS_ENCRYPTION_KEY}
       - DATABASE_URL=postgresql://supoclip:supoclip_password@postgres:5432/supoclip
@@ -321,9 +324,11 @@ services:
     image: cloudflare/cloudflared:2026.7.3 # exact tags only upstream; bump periodically
     container_name: supoclip-cloudflared
     profiles: ["tunnel"]
-    command: ["tunnel", "--no-autoupdate", "--metrics", "0.0.0.0:2000", "run"]
+    # Metrics/debug endpoint binds to loopback only: the healthcheck below execs
+    # inside this container, so nothing on the compose network needs to reach it.
+    command: ["tunnel", "--no-autoupdate", "--metrics", "127.0.0.1:2000", "run"]
     environment:
-      # TUNNEL_TOKEN env instead of --token keeps the secret out of `docker inspect`.
+      # TUNNEL_TOKEN is how cloudflared reads the token from the environment.
       - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN:-}
     depends_on:
       frontend:
