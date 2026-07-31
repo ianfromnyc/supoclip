@@ -84,14 +84,30 @@ def test_ollama_alias_falls_back_to_the_default_local_endpoint(monkeypatch):
     assert _base_url_of(model) == "http://localhost:11434/v1"
 
 
-def test_openai_base_url_takes_precedence_over_the_ollama_alias(monkeypatch):
+def test_openai_base_url_never_redirects_the_ollama_alias(monkeypatch):
+    # Every .env now ships a real OPENAI_BASE_URL, so it carries no signal about
+    # where an ollama:* deployment wants its transcripts sent.
     monkeypatch.setenv("LLM", "ollama:gpt-oss:20b")
     monkeypatch.setenv("OLLAMA_BASE_URL", "http://ollama.example/v1")
-    monkeypatch.setenv("OPENAI_BASE_URL", "http://llama-swap.example/v1")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
 
     model = _build_transcript_model(Config())
 
-    assert _base_url_of(model) == "http://llama-swap.example/v1"
+    assert _base_url_of(model) == "http://ollama.example/v1"
+
+
+def test_default_openai_base_url_does_not_send_ollama_traffic_to_openai(monkeypatch):
+    # The shipped .env default must not hijack an ollama:* deployment that never
+    # configured an endpoint of its own.
+    monkeypatch.setattr(config_module.os.path, "exists", lambda path: False)
+    monkeypatch.setenv("LLM", "ollama:gpt-oss:20b")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-hosted-openai-secret")
+
+    model = _build_transcript_model(Config())
+
+    assert _base_url_of(model) == "http://localhost:11434/v1"
+    assert _api_key_of(model) != "sk-hosted-openai-secret"
 
 
 def test_ollama_alias_never_leaks_the_openai_key_to_the_legacy_endpoint(monkeypatch):
@@ -132,9 +148,9 @@ def test_ollama_alias_uses_the_ollama_key_for_the_legacy_endpoint(monkeypatch):
     assert _api_key_of(model) == "ollama-key"
 
 
-def test_ollama_alias_pairs_the_openai_key_with_the_openai_base_url(monkeypatch):
-    # When OPENAI_BASE_URL wins the base URL, the OpenAI key travels with it —
-    # the legacy OLLAMA_API_KEY belongs to the endpoint that was not chosen.
+def test_ollama_alias_ignores_the_openai_pair_entirely(monkeypatch):
+    # Both pairs configured: ollama:* reads only its own, so neither the key nor
+    # the endpoint can cross over.
     monkeypatch.setenv("LLM", "ollama:gpt-oss:20b")
     monkeypatch.setenv("OLLAMA_BASE_URL", "http://ollama.example/v1")
     monkeypatch.setenv("OLLAMA_API_KEY", "ollama-key")
@@ -143,8 +159,8 @@ def test_ollama_alias_pairs_the_openai_key_with_the_openai_base_url(monkeypatch)
 
     model = _build_transcript_model(Config())
 
-    assert _base_url_of(model) == "http://llama-swap.example/v1"
-    assert _api_key_of(model) == "sk-hosted-openai-secret"
+    assert _base_url_of(model) == "http://ollama.example/v1"
+    assert _api_key_of(model) == "ollama-key"
 
 
 def test_ollama_alias_logs_a_deprecation_warning_once(monkeypatch, caplog):
@@ -171,6 +187,18 @@ def test_hosted_openai_without_an_api_key_is_a_config_error(monkeypatch):
     assert "OPENAI_API_KEY" in error
     # The message must point at the escape hatch for local/self-hosted servers.
     assert "OPENAI_BASE_URL" in error
+
+
+def test_shipped_hosted_base_url_still_requires_an_api_key(monkeypatch):
+    # The default .env names OpenAI's endpoint explicitly, so "a base URL is
+    # set" can no longer stand in for "this is a self-hosted, keyless endpoint".
+    monkeypatch.setenv("LLM", "openai:gpt-5.2")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+
+    error = _get_missing_llm_key_error("openai:gpt-5.2", Config())
+
+    assert error is not None
+    assert "OPENAI_API_KEY" in error
 
 
 def test_custom_openai_base_url_does_not_require_an_api_key(monkeypatch):
@@ -202,6 +230,26 @@ def test_unknown_service_tier_is_a_config_error(monkeypatch):
     assert "OPENAI_SERVICE_TIER" in error
     assert "turbo" in error
     assert "flex" in error
+
+
+def test_unknown_service_tier_does_not_block_the_ollama_alias(monkeypatch):
+    # The tier is part of the OPENAI_* pair, which ollama:* does not read. A bad
+    # value must not take down a deployment that never sends the field.
+    monkeypatch.setenv("LLM", "ollama:gpt-oss:20b")
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://ollama.example/v1")
+    monkeypatch.setenv("OPENAI_SERVICE_TIER", "turbo")
+
+    assert _get_missing_llm_key_error("ollama:gpt-oss:20b", Config()) is None
+
+
+def test_service_tier_is_not_sent_to_the_ollama_alias(monkeypatch):
+    # Same rule on the request side: no OpenAI-only body field on the wire to
+    # someone's local Ollama server.
+    monkeypatch.setenv("LLM", "ollama:gpt-oss:20b")
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://ollama.example/v1")
+    monkeypatch.setenv("OPENAI_SERVICE_TIER", "flex")
+
+    assert _build_transcript_model_settings(Config()) is None
 
 
 def test_service_tier_is_sent_with_each_request_when_set(monkeypatch):
@@ -264,3 +312,15 @@ def test_hosted_openai_keeps_the_published_endpoint(monkeypatch):
     model = _build_transcript_model(Config())
 
     assert _base_url_of(model) == "https://api.openai.com/v1"
+
+
+def test_shipped_default_base_url_reaches_the_client(monkeypatch):
+    # What every .env now carries, spelled out rather than inferred.
+    monkeypatch.setenv("LLM", "openai:gpt-5.2")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+
+    model = _build_transcript_model(Config())
+
+    assert _base_url_of(model) == "https://api.openai.com/v1"
+    assert _api_key_of(model) == "sk-test"

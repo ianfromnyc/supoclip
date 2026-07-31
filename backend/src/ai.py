@@ -4,6 +4,7 @@ AI-related functions for transcript analysis with enhanced precision and viralit
 
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Literal
+from urllib.parse import urlparse
 import asyncio
 import logging
 import re
@@ -334,6 +335,11 @@ VALID_OPENAI_SERVICE_TIERS = ("auto", "default", "flex", "scale", "priority")
 # on the wire to someone's local model server. Matches the SDK's own sentinel.
 _PLACEHOLDER_API_KEY = "api-key-not-set"
 
+# OpenAI's own API always needs a key, so recognising it is what makes a missing
+# OPENAI_API_KEY an actionable config error rather than a 401 mid-job. Self-hosted
+# endpoints are commonly keyless, so nothing is demanded of them.
+HOSTED_OPENAI_HOSTNAMES = frozenset({"api.openai.com"})
+
 
 def _split_llm_name(model_name: str) -> tuple[str, str | None]:
     if ":" not in model_name:
@@ -377,7 +383,7 @@ def _get_missing_llm_key_error(model_name: str, runtime_config: Config) -> Optio
         )
         # A key is only mandatory for hosted OpenAI. Custom endpoints
         # (llama.cpp, vLLM, Ollama, …) are commonly keyless.
-        if not base_url and not api_key:
+        if _is_hosted_openai(base_url) and not api_key:
             return (
                 "Selected LLM provider is OpenAI, but OPENAI_API_KEY is not set. "
                 "Set OPENAI_API_KEY, or point OPENAI_BASE_URL at an "
@@ -385,13 +391,29 @@ def _get_missing_llm_key_error(model_name: str, runtime_config: Config) -> Optio
                 "matching API key."
             )
 
-        service_tier_error = get_openai_service_tier_error(
-            runtime_config.openai_service_tier
-        )
-        if service_tier_error:
-            return service_tier_error
+        # Only openai:* sends the tier, so only openai:* can be broken by a bad
+        # one. Rejecting it for ollama:* would block a deployment over a field
+        # that never leaves the process.
+        if provider == "openai":
+            service_tier_error = get_openai_service_tier_error(
+                runtime_config.openai_service_tier
+            )
+            if service_tier_error:
+                return service_tier_error
 
     return None
+
+
+def _is_hosted_openai(base_url: str | None) -> bool:
+    """True when the endpoint is OpenAI's own API, which always needs a key.
+
+    A missing base URL counts as hosted, because that is where the OpenAI client
+    goes when nothing is configured.
+    """
+    if not base_url:
+        return True
+
+    return (urlparse(base_url).hostname or "").lower() in HOSTED_OPENAI_HOSTNAMES
 
 
 def get_openai_service_tier_error(service_tier: str | None) -> Optional[str]:
@@ -428,19 +450,24 @@ def _resolve_openai_compatible_endpoint(
 ) -> tuple[str | None, str | None]:
     """Resolve the (base_url, api_key) pair for an OpenAI-compatible endpoint.
 
-    The key is always paired with the base URL it belongs to, never mixed:
+    There is one client for every OpenAI-compatible server; these variables only
+    decide which endpoint it talks to, and the key always travels with the base
+    URL it belongs to:
 
-    - `openai:*` uses OPENAI_BASE_URL/OPENAI_API_KEY. A `None` base URL means
-      "let the SDK use the published OpenAI endpoint".
-    - The deprecated `ollama:*` alias prefers that same OPENAI_* pair, and only
-      when OPENAI_BASE_URL is unset falls back to the legacy OLLAMA_* pair (or
-      the default local Ollama URL) so existing deployments keep working.
+    - `openai:*` uses OPENAI_BASE_URL/OPENAI_API_KEY. Every `.env` ships a real
+      OPENAI_BASE_URL, so this is the one path to change for a different
+      endpoint, hosted or self-hosted.
+    - The deprecated `ollama:*` alias uses the legacy OLLAMA_* pair (or the
+      default local Ollama URL), so an installation that predates the unified
+      wiring keeps working untouched. OPENAI_BASE_URL never applies to it: now
+      that the variable is always set, honouring it here would silently redirect
+      every existing ollama:* deployment to api.openai.com.
 
-    Pairing matters for more than tidiness: an OPENAI_API_KEY set for some
-    unrelated purpose must never be sent as a bearer token to a user's local
+    Keeping the pairs apart is what stops an OPENAI_API_KEY set for some
+    unrelated purpose from being sent as a bearer token to a user's local
     Ollama server.
     """
-    if provider == "ollama" and not runtime_config.openai_base_url:
+    if provider == "ollama":
         return (
             runtime_config.resolve_ollama_base_url(),
             runtime_config.ollama_api_key,
@@ -483,9 +510,12 @@ def _build_transcript_model_settings(
     chat-completions call, so it belongs in model settings rather than in the
     client. Returning None when unset keeps the field out of the request, which
     OpenAI treats the same as `auto`.
+
+    The tier belongs to the OPENAI_* pair, so the deprecated `ollama:*` prefix
+    does not read it — same rule as the base URL and the key.
     """
     provider, _ = _split_llm_name(runtime_config.llm)
-    if provider not in OPENAI_COMPATIBLE_PROVIDERS:
+    if provider != "openai":
         return None
 
     service_tier = (runtime_config.openai_service_tier or "").strip().lower()

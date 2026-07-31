@@ -210,15 +210,18 @@ if [ "${LLM:-}" = "ollama:" ] || [ "${LLM:-}" = "openai:" ]; then
     echo ""
 elif [[ "${LLM:-}" == ollama:* ]]; then
     echo -e "${YELLOW}Note: LLM=ollama:* is deprecated${NC}"
-    echo "Use LLM=openai:<model> with OPENAI_BASE_URL instead; OLLAMA_BASE_URL"
-    echo "and OLLAMA_API_KEY still work as fallbacks for now."
+    echo "It runs through the same OpenAI-compatible client, reading"
+    echo "OLLAMA_BASE_URL and OLLAMA_API_KEY. Prefer LLM=openai:<model> with"
+    echo "OPENAI_BASE_URL for new installs."
     echo ""
 fi
 
-# A custom OPENAI_BASE_URL (or the ollama alias) means a self-hosted endpoint,
-# which usually needs no API key at all — so only warn when neither is present.
+# A self-hosted endpoint usually needs no API key at all, so a missing key is
+# only worth warning about when the selected LLM actually talks to a hosted
+# provider. Every .env ships an OPENAI_BASE_URL, so its presence proves nothing —
+# what matters is whether it still points at OpenAI's own API.
 if [ -z "$OPENAI_API_KEY" ] && [ -z "$GOOGLE_API_KEY" ] && [ -z "$ANTHROPIC_API_KEY" ]; then
-    if [ -n "${OPENAI_BASE_URL:-}" ] || [[ "${LLM:-}" == ollama:* ]]; then
+    if [[ "${LLM:-}" == openai:* && -n "${OPENAI_BASE_URL:-}" && "${OPENAI_BASE_URL:-}" != *api.openai.com* ]] || [[ "${LLM:-}" == ollama:* ]]; then
         :
     else
     echo -e "${YELLOW}Warning: No AI provider API key is set in .env${NC}"
