@@ -26,7 +26,8 @@ if [ ! -f .env ]; then
     echo "  3. Edit .env and add your API keys:"
     echo "     - ASSEMBLY_AI_API_KEY (required unless TRANSCRIPTION_PROVIDER=whisperx)"
     echo "     - OPENAI_API_KEY or GOOGLE_API_KEY or ANTHROPIC_API_KEY"
-    echo "     - OR set LLM=ollama:<model> (optional: OLLAMA_BASE_URL, OLLAMA_API_KEY)"
+    echo "     - OR set LLM=openai:<model> with OPENAI_BASE_URL for a local"
+    echo "       OpenAI-compatible endpoint (llama.cpp, vLLM, Ollama, ...)"
     echo ""
     exit 1
 fi
@@ -189,7 +190,7 @@ if [ -n "${LLM:-}" ]; then
             ;;
         *)
             echo -e "${YELLOW}Warning: Unsupported LLM value '$LLM'${NC}"
-            echo "Use google-gla:*, openai:*, anthropic:*, or ollama:*"
+            echo "Use google-gla:*, openai:*, or anthropic:* (ollama:* is deprecated)"
             echo ""
             ;;
     esac
@@ -203,21 +204,29 @@ if [ -z "$ASSEMBLY_AI_API_KEY" ] && [ "${TRANSCRIPTION_PROVIDER:-assemblyai}" !=
     echo ""
 fi
 
-if [ "${LLM:-}" = "ollama:" ]; then
-    echo -e "${YELLOW}Warning: LLM=ollama: is missing a model name${NC}"
-    echo "Use a value like LLM=ollama:gpt-oss:20b"
+if [ "${LLM:-}" = "ollama:" ] || [ "${LLM:-}" = "openai:" ]; then
+    echo -e "${YELLOW}Warning: LLM=${LLM} is missing a model name${NC}"
+    echo "Use a value like LLM=openai:gpt-oss:20b"
     echo ""
-elif [[ "${LLM:-}" == ollama:* ]] && [ -z "${OLLAMA_BASE_URL:-}" ]; then
-    echo "Ollama base URL is not set; SupoClip will use its local/Docker default."
+elif [[ "${LLM:-}" == ollama:* ]]; then
+    echo -e "${YELLOW}Note: LLM=ollama:* is deprecated${NC}"
+    echo "It runs through the same OpenAI-compatible client, reading"
+    echo "OLLAMA_BASE_URL and OLLAMA_API_KEY. Prefer LLM=openai:<model> with"
+    echo "OPENAI_BASE_URL for new installs."
     echo ""
 fi
 
+# A self-hosted endpoint usually needs no API key at all, so a missing key is
+# only worth warning about when the selected LLM actually talks to a hosted
+# provider. Every .env ships an OPENAI_BASE_URL, so its presence proves nothing —
+# what matters is whether it still points at OpenAI's own API.
 if [ -z "$OPENAI_API_KEY" ] && [ -z "$GOOGLE_API_KEY" ] && [ -z "$ANTHROPIC_API_KEY" ]; then
-    if [[ "${LLM:-}" == ollama:* ]]; then
+    if [[ "${LLM:-}" == openai:* && -n "${OPENAI_BASE_URL:-}" && "${OPENAI_BASE_URL:-}" != *api.openai.com* ]] || [[ "${LLM:-}" == ollama:* ]]; then
         :
     else
     echo -e "${YELLOW}Warning: No AI provider API key is set in .env${NC}"
-    echo "You need at least one of: OPENAI_API_KEY, GOOGLE_API_KEY, ANTHROPIC_API_KEY, or LLM=ollama:<model>"
+    echo "You need at least one of: OPENAI_API_KEY, GOOGLE_API_KEY, ANTHROPIC_API_KEY,"
+    echo "or LLM=openai:<model> with OPENAI_BASE_URL pointing at your own endpoint"
     echo ""
     fi
 fi

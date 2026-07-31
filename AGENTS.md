@@ -219,8 +219,13 @@ TRANSCRIPTION_PROVIDER=assemblyai    # Or `whisperx` for local transcription (ne
                                      # in .env.example)
 LLM=google-gla:gemini-3-flash-preview # Format: provider:model-name
 GOOGLE_API_KEY=...                   # Or OPENAI_API_KEY / ANTHROPIC_API_KEY
-OLLAMA_BASE_URL=http://localhost:11434/v1  # Optional for ollama:* models
-OLLAMA_API_KEY=...                   # Optional; required for Ollama Cloud
+OPENAI_BASE_URL=https://api.openai.com/v1  # The endpoint openai:* talks to. Change it
+                                     # for any OpenAI-compatible server (llama.cpp,
+                                     # vLLM, Ollama /v1, OpenRouter, ...). Never blank:
+                                     # an empty value is an empty endpoint, not a default
+OPENAI_SERVICE_TIER=                 # Optional; auto|default|flex|scale|priority
+OLLAMA_BASE_URL=http://localhost:11434/v1  # Deprecated; ollama:* only, ignores OPENAI_BASE_URL
+OLLAMA_API_KEY=...                   # Deprecated; ollama:* only, ignores OPENAI_API_KEY
 
 # Optional
 PEXELS_API_KEY=...                   # B-roll stock footage
@@ -347,4 +352,4 @@ Agent-facing conventions live in `docs/agents/`:
 ## Security & Configuration Tips
 
 - Never commit real secrets; use `.env.example` as the template.
-- Required runtime keys include `ASSEMBLY_AI_API_KEY` and either one hosted LLM provider key (`OPENAI_API_KEY`, `GOOGLE_API_KEY`, or `ANTHROPIC_API_KEY`) or an Ollama model configuration (`LLM=ollama:*`, optional `OLLAMA_BASE_URL`).
+- Required runtime keys include `ASSEMBLY_AI_API_KEY` and either one hosted LLM provider key (`OPENAI_API_KEY`, `GOOGLE_API_KEY`, or `ANTHROPIC_API_KEY`) or a self-hosted OpenAI-compatible endpoint (`LLM=openai:*` with `OPENAI_BASE_URL` pointed at your own server, which usually needs no key). `LLM=ollama:*` plus `OLLAMA_BASE_URL` still works as a deprecated prefix reaching the same kind of server; it reads only the `OLLAMA_*` pair.

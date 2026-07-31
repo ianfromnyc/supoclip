@@ -3,6 +3,8 @@ import pytest
 from src.api.routes.admin import SETTING_METADATA
 from src.runtime_settings import (
     NON_SECRET_SETTING_KEYS,
+    PROCESS_ENV_SETTING_KEYS,
+    RUNTIME_SETTING_KEYS,
     decode_setting_value,
     encode_setting_value,
     encrypt_setting_value,
@@ -61,6 +63,22 @@ def test_legacy_encrypted_row_still_decodes_for_non_secret_setting(encryption_ke
     legacy = encrypt_setting_value("assemblyai")
 
     assert decode_setting_value("TRANSCRIPTION_PROVIDER", legacy) == "assemblyai"
+
+
+def test_openai_endpoint_settings_are_admin_manageable():
+    assert "OPENAI_BASE_URL" in RUNTIME_SETTING_KEYS
+    assert "OPENAI_SERVICE_TIER" in RUNTIME_SETTING_KEYS
+    # The base URL is mirrored into the process env like the other endpoint
+    # settings, so clearing it in the admin UI also clears the SDK's fallback.
+    assert "OPENAI_BASE_URL" in PROCESS_ENV_SETTING_KEYS
+
+
+def test_openai_base_url_is_secret_but_service_tier_is_not(no_encryption_key):
+    # Endpoint URLs can embed basic-auth credentials, so they stay encrypted.
+    assert "OPENAI_BASE_URL" not in NON_SECRET_SETTING_KEYS
+    # The service tier is a plain enum value, manageable without an
+    # encryption key configured.
+    assert encode_setting_value("OPENAI_SERVICE_TIER", "flex") == "plain:flex"
 
 
 def test_non_secret_tier_matches_admin_metadata():

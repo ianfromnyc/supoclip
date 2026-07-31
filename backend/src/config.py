@@ -16,9 +16,18 @@ DOCKER_OLLAMA_BASE_URL = "http://host.docker.internal:11434/v1"
 class Config:
     def __init__(self):
         self.openai_api_key = self._get_runtime_setting("OPENAI_API_KEY")
+        # Optional endpoint override. Any OpenAI-compatible server works here
+        # (llama.cpp/llama-swap, vLLM, OpenRouter, Ollama's /v1, …); leaving it
+        # unset targets the published OpenAI API.
+        self.openai_base_url = self._get_runtime_setting("OPENAI_BASE_URL")
+        # Optional per-request `service_tier`; validated in ai.py so an invalid
+        # value surfaces as an actionable config error instead of being dropped.
+        self.openai_service_tier = self._get_runtime_setting("OPENAI_SERVICE_TIER")
         self.anthropic_api_key = self._get_runtime_setting("ANTHROPIC_API_KEY")
         self.google_api_key = self._get_runtime_setting("GOOGLE_API_KEY")
         self.youtube_data_api_key = self._get_runtime_setting("YOUTUBE_DATA_API_KEY")
+        # Deprecated aliases kept readable so pre-existing ollama:* deployments
+        # keep working; they now feed the same OpenAI-compatible client.
         self.ollama_base_url = self._get_runtime_setting("OLLAMA_BASE_URL")
         self.ollama_api_key = self._get_runtime_setting("OLLAMA_API_KEY")
 
@@ -173,6 +182,8 @@ class Config:
             "HF_TOKEN": self.hf_token,
             "LLM": self.llm,
             "OPENAI_API_KEY": self.openai_api_key,
+            "OPENAI_BASE_URL": self.openai_base_url,
+            "OPENAI_SERVICE_TIER": self.openai_service_tier,
             "GOOGLE_API_KEY": self.google_api_key,
             "ANTHROPIC_API_KEY": self.anthropic_api_key,
             "OLLAMA_BASE_URL": self.ollama_base_url,

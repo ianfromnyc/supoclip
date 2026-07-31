@@ -4,14 +4,15 @@ AI-related functions for transcript analysis with enhanced precision and viralit
 
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Literal
+from urllib.parse import urlparse
 import asyncio
 import logging
 import re
 
 from pydantic_ai import Agent
 from pydantic_ai.models import Model
-from pydantic_ai.models.ollama import OllamaModel
-from pydantic_ai.providers.ollama import OllamaProvider
+from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
+from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic import AliasChoices, BaseModel, Field, field_validator
 
 from .config import Config, get_config
@@ -315,6 +316,30 @@ _transcript_agent_signature: Optional[tuple[str | None, ...]] = None
 
 SUPPORTED_LLM_PROVIDERS = {"google", "google-gla", "openai", "anthropic", "ollama"}
 
+# Providers served by the unified OpenAI-compatible client. `ollama` is a
+# deprecated alias for `openai` kept so existing configs keep working.
+OPENAI_COMPATIBLE_PROVIDERS = {"openai", "ollama"}
+DEPRECATED_LLM_PROVIDER_ALIASES = {"ollama": "openai"}
+
+# Providers already warned about, so the deprecation notice is logged once per
+# process instead of on every agent rebuild.
+_deprecated_provider_alias_warned: set[str] = set()
+
+# Values OpenAI accepts for the chat-completions `service_tier` request field.
+# https://platform.openai.com/docs/api-reference/chat/create
+VALID_OPENAI_SERVICE_TIERS = ("auto", "default", "flex", "scale", "priority")
+
+# Sent instead of a real key to keyless custom endpoints. The OpenAI client
+# demands some non-empty key, and passing None would let it fall back to the
+# OPENAI_API_KEY environment variable — which is how a hosted key would end up
+# on the wire to someone's local model server. Matches the SDK's own sentinel.
+_PLACEHOLDER_API_KEY = "api-key-not-set"
+
+# OpenAI's own API always needs a key, so recognising it is what makes a missing
+# OPENAI_API_KEY an actionable config error rather than a 401 mid-job. Self-hosted
+# endpoints are commonly keyless, so nothing is demanded of them.
+HOSTED_OPENAI_HOSTNAMES = frozenset({"api.openai.com"})
+
 
 def _split_llm_name(model_name: str) -> tuple[str, str | None]:
     if ":" not in model_name:
@@ -337,19 +362,13 @@ def _get_missing_llm_key_error(model_name: str, runtime_config: Config) -> Optio
     if not provider_model_name:
         return (
             "Selected LLM is missing a model name. "
-            "Use the format provider:model, for example ollama:gpt-oss:20b."
+            "Use the format provider:model, for example openai:gpt-5.2."
         )
 
     if provider in {"google", "google-gla"} and not runtime_config.google_api_key:
         return (
             "Selected LLM provider is Google, but GOOGLE_API_KEY is not set. "
-            "Set GOOGLE_API_KEY or set LLM to openai:* / anthropic:* / ollama:* with the matching API key."
-        )
-
-    if provider == "openai" and not runtime_config.openai_api_key:
-        return (
-            "Selected LLM provider is OpenAI, but OPENAI_API_KEY is not set. "
-            "Set OPENAI_API_KEY or choose another provider with a matching API key."
+            "Set GOOGLE_API_KEY or set LLM to openai:* / anthropic:* with the matching API key."
         )
 
     if provider == "anthropic" and not runtime_config.anthropic_api_key:
@@ -358,42 +377,165 @@ def _get_missing_llm_key_error(model_name: str, runtime_config: Config) -> Optio
             "Set ANTHROPIC_API_KEY or choose another provider with a matching API key."
         )
 
-    if provider == "ollama":
-        # Ollama can run locally without an API key. OLLAMA_BASE_URL/OLLAMA_API_KEY
-        # are optional and passed through as environment variables.
-        return None
+    if provider in OPENAI_COMPATIBLE_PROVIDERS:
+        base_url, api_key = _resolve_openai_compatible_endpoint(
+            provider, runtime_config
+        )
+        # A key is only mandatory for hosted OpenAI. Custom endpoints
+        # (llama.cpp, vLLM, Ollama, …) are commonly keyless.
+        if _is_hosted_openai(base_url) and not api_key:
+            return (
+                "Selected LLM provider is OpenAI, but OPENAI_API_KEY is not set. "
+                "Set OPENAI_API_KEY, or point OPENAI_BASE_URL at an "
+                "OpenAI-compatible endpoint, or choose another provider with a "
+                "matching API key."
+            )
+
+        # Only openai:* sends the tier, so only openai:* can be broken by a bad
+        # one. Rejecting it for ollama:* would block a deployment over a field
+        # that never leaves the process.
+        if provider == "openai":
+            service_tier_error = get_openai_service_tier_error(
+                runtime_config.openai_service_tier
+            )
+            if service_tier_error:
+                return service_tier_error
 
     return None
 
 
+def _is_hosted_openai(base_url: str | None) -> bool:
+    """True when the endpoint is OpenAI's own API, which always needs a key.
+
+    A missing base URL counts as hosted, because that is where the OpenAI client
+    goes when nothing is configured.
+    """
+    if not base_url:
+        return True
+
+    return (urlparse(base_url).hostname or "").lower() in HOSTED_OPENAI_HOSTNAMES
+
+
+def get_openai_service_tier_error(service_tier: str | None) -> Optional[str]:
+    """Reject service tiers OpenAI would not accept, before the first request."""
+    normalized = (service_tier or "").strip().lower()
+    if not normalized or normalized in VALID_OPENAI_SERVICE_TIERS:
+        return None
+
+    return (
+        f"OPENAI_SERVICE_TIER='{service_tier}' is not a valid service tier. "
+        f"Use one of: {', '.join(VALID_OPENAI_SERVICE_TIERS)}, or leave it "
+        "unset to let OpenAI pick."
+    )
+
+
+def _warn_once_about_deprecated_provider_alias(provider: str) -> None:
+    """Nudge deployments off a deprecated provider prefix, once per process."""
+    replacement = DEPRECATED_LLM_PROVIDER_ALIASES.get(provider)
+    if not replacement or provider in _deprecated_provider_alias_warned:
+        return
+
+    _deprecated_provider_alias_warned.add(provider)
+    logger.warning(
+        "LLM=%s:* is deprecated and now runs through the unified "
+        "OpenAI-compatible client. Switch to %s:<model> and set OPENAI_BASE_URL "
+        "(plus OPENAI_API_KEY if the endpoint needs one).",
+        provider,
+        replacement,
+    )
+
+
+def _resolve_openai_compatible_endpoint(
+    provider: str, runtime_config: Config
+) -> tuple[str | None, str | None]:
+    """Resolve the (base_url, api_key) pair for an OpenAI-compatible endpoint.
+
+    There is one client for every OpenAI-compatible server; these variables only
+    decide which endpoint it talks to, and the key always travels with the base
+    URL it belongs to:
+
+    - `openai:*` uses OPENAI_BASE_URL/OPENAI_API_KEY. Every `.env` ships a real
+      OPENAI_BASE_URL, so this is the one path to change for a different
+      endpoint, hosted or self-hosted.
+    - The deprecated `ollama:*` alias uses the legacy OLLAMA_* pair (or the
+      default local Ollama URL), so an installation that predates the unified
+      wiring keeps working untouched. OPENAI_BASE_URL never applies to it: now
+      that the variable is always set, honouring it here would silently redirect
+      every existing ollama:* deployment to api.openai.com.
+
+    Keeping the pairs apart is what stops an OPENAI_API_KEY set for some
+    unrelated purpose from being sent as a bearer token to a user's local
+    Ollama server.
+    """
+    if provider == "ollama":
+        return (
+            runtime_config.resolve_ollama_base_url(),
+            runtime_config.ollama_api_key,
+        )
+
+    return runtime_config.openai_base_url, runtime_config.openai_api_key
+
+
 def _build_transcript_model(runtime_config: Config) -> Model | str:
     provider, provider_model_name = _split_llm_name(runtime_config.llm)
-    if provider != "ollama":
+    if provider not in OPENAI_COMPATIBLE_PROVIDERS:
         return runtime_config.llm
 
     if not provider_model_name:
         raise RuntimeError(
-            "Selected LLM provider is Ollama, but no model name was provided. "
-            "Use the format ollama:<model>, for example ollama:gpt-oss:20b."
+            "Selected LLM is missing a model name. "
+            f"Use the format {provider}:<model>, for example openai:gpt-5.2."
         )
 
-    return OllamaModel(
+    _warn_once_about_deprecated_provider_alias(provider)
+    base_url, api_key = _resolve_openai_compatible_endpoint(provider, runtime_config)
+
+    if base_url and not api_key:
+        # Keyless custom endpoint: send the placeholder rather than letting the
+        # SDK reach for OPENAI_API_KEY behind our back.
+        api_key = _PLACEHOLDER_API_KEY
+
+    return OpenAIChatModel(
         provider_model_name,
-        provider=OllamaProvider(
-            base_url=runtime_config.resolve_ollama_base_url(),
-            api_key=runtime_config.ollama_api_key,
-        ),
+        provider=OpenAIProvider(base_url=base_url, api_key=api_key),
     )
+
+
+def _build_transcript_model_settings(
+    runtime_config: Config,
+) -> OpenAIChatModelSettings | None:
+    """Per-request settings for the OpenAI-compatible client.
+
+    OpenAI takes the service tier as a `service_tier` body parameter on every
+    chat-completions call, so it belongs in model settings rather than in the
+    client. Returning None when unset keeps the field out of the request, which
+    OpenAI treats the same as `auto`.
+
+    The tier belongs to the OPENAI_* pair, so the deprecated `ollama:*` prefix
+    does not read it — same rule as the base URL and the key.
+    """
+    provider, _ = _split_llm_name(runtime_config.llm)
+    if provider != "openai":
+        return None
+
+    service_tier = (runtime_config.openai_service_tier or "").strip().lower()
+    if not service_tier:
+        return None
+
+    return OpenAIChatModelSettings(openai_service_tier=service_tier)
 
 
 def get_transcript_agent() -> Agent[None, TranscriptAnalysis]:
     """Get or create the transcript analysis agent (lazy initialization)."""
     global _transcript_agent, _transcript_agent_signature
     runtime_config = get_config()
-    provider, _ = _split_llm_name(runtime_config.llm)
+    # Every input that shapes the agent belongs here, or an admin changing a
+    # setting at runtime would keep talking to the previously built client.
     signature = (
         runtime_config.llm,
         runtime_config.openai_api_key,
+        runtime_config.openai_base_url,
+        runtime_config.openai_service_tier,
         runtime_config.google_api_key,
         runtime_config.anthropic_api_key,
         runtime_config.ollama_base_url,
@@ -407,12 +549,13 @@ def get_transcript_agent() -> Agent[None, TranscriptAnalysis]:
 
         _transcript_agent = Agent[None, TranscriptAnalysis](
             model=_build_transcript_model(runtime_config),
+            model_settings=_build_transcript_model_settings(runtime_config),
             output_type=TranscriptAnalysis,
             system_prompt=transcript_analysis_system_prompt,
-            # Some local Ollama/OpenAI-compatible endpoints can return formatted
-            # prose before settling on schema-valid JSON. Keep retries limited
-            # while still allowing enough repair attempts for local models.
-            output_retries=2 if provider == "ollama" else 2,
+            # Local OpenAI-compatible endpoints can return formatted prose
+            # before settling on schema-valid JSON. Keep retries limited while
+            # still allowing enough repair attempts for local models.
+            output_retries=2,
         )
         _transcript_agent_signature = signature
     return _transcript_agent

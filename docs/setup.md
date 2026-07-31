@@ -13,10 +13,14 @@ This guide covers the recommended Docker setup, local development mode, and the 
 
 - `ASSEMBLY_AI_API_KEY`
 - One LLM provider configuration:
-  - `OPENAI_API_KEY` with `LLM=openai:...`
+  - `OPENAI_API_KEY` with `LLM=openai:...` and the shipped
+    `OPENAI_BASE_URL=https://api.openai.com/v1`
   - `GOOGLE_API_KEY` with `LLM=google-gla:...`
   - `ANTHROPIC_API_KEY` with `LLM=anthropic:...`
-  - `LLM=ollama:...` with an available Ollama server, optionally `OLLAMA_BASE_URL`
+  - `LLM=openai:...` with `OPENAI_BASE_URL` changed to a self-hosted
+    OpenAI-compatible endpoint (llama.cpp, vLLM, Ollama, …); `OPENAI_API_KEY`
+    only if it needs one. `LLM=ollama:...` with `OLLAMA_BASE_URL` still works
+    but is deprecated
 
 ### Optional credentials
 

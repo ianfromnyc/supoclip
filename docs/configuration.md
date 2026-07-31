@@ -30,13 +30,46 @@ In most cases, edit `.env` and then rebuild or restart the stack.
 | Variable | Required | Purpose |
 |---|---|---|
 | `LLM` | Yes | Selects the provider and model, for example `google-gla:gemini-3-flash-preview` |
-| `OPENAI_API_KEY` | If using OpenAI | Required for `openai:*` models |
+| `OPENAI_API_KEY` | If using hosted OpenAI | Required for `openai:*` models on the hosted API; optional when `OPENAI_BASE_URL` points at a keyless endpoint |
+| `OPENAI_BASE_URL` | If using `openai:*` | The endpoint `openai:*` models talk to. `.env.example` ships `https://api.openai.com/v1`; change it for any other OpenAI-compatible server. Never leave it blank |
+| `OPENAI_SERVICE_TIER` | Optional | Sent as `service_tier` on each `openai:*` request: `auto`, `default`, `flex`, `scale` or `priority`. Unset sends nothing, which OpenAI treats as `auto`. Never sent by `ollama:*` |
 | `GOOGLE_API_KEY` | If using Google | Required for `google-gla:*` models |
 | `ANTHROPIC_API_KEY` | If using Anthropic | Required for `anthropic:*` models |
-| `OLLAMA_BASE_URL` | If using Ollama remotely | Base URL for Ollama-compatible endpoints |
-| `OLLAMA_API_KEY` | Optional | Used for hosted Ollama providers such as Ollama Cloud |
+| `OLLAMA_BASE_URL` | Deprecated | The endpoint `ollama:*` talks to. Independent of `OPENAI_BASE_URL` |
+| `OLLAMA_API_KEY` | Deprecated | The key `ollama:*` sends. Independent of `OPENAI_API_KEY` |
 
 The backend can infer a default LLM from whichever API key is present, but setting `LLM` explicitly is safer and easier to debug.
+
+### OpenAI-compatible endpoints
+
+`openai:<model>` is the single path for both hosted OpenAI and any
+OpenAI-compatible server — llama.cpp/llama-swap, vLLM, Ollama's `/v1`,
+OpenRouter, the Hugging Face router, and so on. There is no hosted-versus-local
+switch: `OPENAI_BASE_URL` names the endpoint in every case, and `.env.example`
+ships OpenAI's own URL as the starting value.
+
+```bash
+# Hosted OpenAI, the shipped default
+LLM=openai:gpt-5.2
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_API_KEY=sk-…
+
+# Your own server: change the URL, drop the key if it needs none
+LLM=openai:qwen3-coder
+OPENAI_BASE_URL=http://localhost:8080/v1
+```
+
+Give `OPENAI_BASE_URL` a real URL. A blank value is not "use the default" — the
+OpenAI client reads the empty string as a configured endpoint, skips its own
+default, and every request fails to connect.
+
+`LLM=ollama:<model>` still works as a **deprecated** prefix reaching the same
+kind of server, but it reads its own pair only: `OLLAMA_BASE_URL` /
+`OLLAMA_API_KEY`, defaulting to `http://localhost:11434/v1` (or
+`http://host.docker.internal:11434/v1` inside Docker). `OPENAI_BASE_URL` never
+applies to it, so the shipped OpenAI default cannot redirect an existing Ollama
+deployment. The backend logs a deprecation warning when it is used; migrate to
+`openai:*` with `OPENAI_BASE_URL`.
 
 ## Core Application Settings
 
