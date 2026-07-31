@@ -79,6 +79,7 @@ GOOGLE_API_KEY=your_google_api_key
 
 # Option B: OpenAI GPT-5.2 (best reasoning)
 # LLM=openai:gpt-5.2
+# OPENAI_BASE_URL=https://api.openai.com/v1
 # OPENAI_API_KEY=your_openai_api_key
 
 # Option C: Anthropic Claude
@@ -86,6 +87,7 @@ GOOGLE_API_KEY=your_google_api_key
 # ANTHROPIC_API_KEY=your_anthropic_api_key
 
 # Option D: any OpenAI-compatible endpoint (llama.cpp, vLLM, Ollama, OpenRouter, …)
+# Same variable as Option B — only the URL changes
 # LLM=openai:gpt-oss:20b
 # OPENAI_BASE_URL=http://localhost:11434/v1  # Your endpoint; use host.docker.internal in Docker
 # OPENAI_API_KEY=  # Only if the endpoint requires one
@@ -159,9 +161,11 @@ If you enable DataFast, also verify that:
 - Make sure you've set the correct LLM provider AND its corresponding API key in `.env`
 - Default is `google-gla:gemini-3-flash-preview` which requires `GOOGLE_API_KEY`
 - If using `openai:gpt-5.2` against hosted OpenAI, you MUST set `OPENAI_API_KEY`
-- For a self-hosted OpenAI-compatible endpoint, set `OPENAI_BASE_URL` instead — no key needed
+- For a self-hosted OpenAI-compatible endpoint, change `OPENAI_BASE_URL` — no key needed
   unless the endpoint requires one (Ollama: `http://localhost:11434/v1` locally,
   `http://host.docker.internal:11434/v1` for Docker)
+- Never blank out `OPENAI_BASE_URL`. An empty value is read as an empty endpoint, not as
+  "use the default", and every request fails to connect
 - Rebuild after changing `.env`: `docker-compose up -d --build`
 
 **Videos stay queued / never process:**

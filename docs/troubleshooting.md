@@ -128,7 +128,13 @@ Verify:
 - `LLM=google-gla:...` requires `GOOGLE_API_KEY`
 - `LLM=anthropic:...` requires `ANTHROPIC_API_KEY`
 - `LLM=ollama:...` (deprecated) requires a reachable endpoint at
-  `OPENAI_BASE_URL`, `OLLAMA_BASE_URL`, or the local Ollama default
+  `OLLAMA_BASE_URL` or the local Ollama default. It ignores `OPENAI_BASE_URL`
+
+### Every OpenAI request fails to connect
+
+Check that `OPENAI_BASE_URL` is not blank. An empty value is read as an empty
+endpoint rather than as "use the default", so requests go nowhere. Set it to
+`https://api.openai.com/v1` for hosted OpenAI, or to your own server's URL.
 
 ## YouTube Downloads Fail
 

@@ -38,10 +38,12 @@ ASSEMBLY_AI_API_KEY=your_assemblyai_key_here
 # Choose one AI provider for clip selection
 OPENAI_API_KEY=your_openai_key_here
 
-# Configure which AI model to use
+# Configure which AI model to use, and the endpoint it talks to
 LLM=openai:gpt-4
+OPENAI_BASE_URL=https://api.openai.com/v1
 
-# OR use a local OpenAI-compatible endpoint (llama.cpp, vLLM, Ollama, …)
+# OR point the same variable at a local OpenAI-compatible endpoint
+# (llama.cpp, vLLM, Ollama, …) and drop the key if it needs none
 # LLM=openai:gpt-oss:20b
 # OPENAI_BASE_URL=http://localhost:11434/v1
 
@@ -110,10 +112,10 @@ docker-compose up -d --build
 | `DISABLE_SIGN_UP` | `true` | Sign-ups are closed by default on every deployment method, even when the variable is unset; set it explicitly to `false` to let people register |
 | `GOOGLE_API_KEY` | - | For Google Gemini models |
 | `ANTHROPIC_API_KEY` | - | For Claude models |
-| `OPENAI_BASE_URL` | - | Endpoint override for `openai:*`. Any OpenAI-compatible server; unset means hosted OpenAI |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | The endpoint `openai:*` talks to. Change it for any other OpenAI-compatible server; never leave it blank |
 | `OPENAI_SERVICE_TIER` | - | `auto`, `default`, `flex`, `scale` or `priority`; sent as `service_tier` on each request |
-| `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | Deprecated alias of `OPENAI_BASE_URL`, read only by `ollama:*` |
-| `OLLAMA_API_KEY` | - | Deprecated alias of `OPENAI_API_KEY`, read only by `ollama:*` |
+| `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | Deprecated; the endpoint `ollama:*` talks to, independent of `OPENAI_BASE_URL` |
+| `OLLAMA_API_KEY` | - | Deprecated; the key `ollama:*` sends, independent of `OPENAI_API_KEY` |
 | `AWS_REGION` | `us-east-1` | Optional in self-host mode, required for hosted billing/waitlist emails |
 | `AWS_ACCESS_KEY_ID` | - | Optional in self-host mode, required for hosted billing/waitlist emails |
 | `AWS_SECRET_ACCESS_KEY` | - | Optional in self-host mode, required for hosted billing/waitlist emails |
@@ -172,8 +174,9 @@ OPENAI_BASE_URL=http://localhost:11434/v1
 # OPENAI_API_KEY only if the endpoint requires one
 ```
 
-`LLM=ollama:*` with `OLLAMA_BASE_URL` still works, but is deprecated — it routes
-through the same OpenAI-compatible client.
+`LLM=ollama:*` still works, but is deprecated — it routes through the same
+OpenAI-compatible client, reading `OLLAMA_BASE_URL`/`OLLAMA_API_KEY` rather than
+the `OPENAI_*` pair.
 
 ## Troubleshooting
 
