@@ -270,7 +270,7 @@ Required env vars for this flow:
 
 ### Local Development (Without Docker)
 
-See [CLAUDE.md](CLAUDE.md) for detailed development instructions.
+See [AGENTS.md](AGENTS.md) for detailed development instructions.
 
 ## License
 
