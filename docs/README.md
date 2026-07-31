@@ -87,6 +87,6 @@ This new docs tree replaces the need to hunt across several markdown files, but 
 
 - [`README.md`](../README.md)
 - [`QUICKSTART.md`](../QUICKSTART.md)
-- [`CLAUDE.md`](../CLAUDE.md)
+- [`AGENTS.md`](../AGENTS.md)
 - [`REFACTORING_COMPLETE.md`](../REFACTORING_COMPLETE.md)
 - [`backend/REFACTORING_GUIDE.md`](../backend/REFACTORING_GUIDE.md)
