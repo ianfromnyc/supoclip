@@ -198,20 +198,28 @@ async def update_runtime_settings(
             detail=f"Unsupported setting key(s): {', '.join(sorted(set(invalid_keys)))}",
         )
 
-    if "LLM" in payload.updates:
-        config_error = _get_missing_llm_key_error(
-            payload.updates["LLM"].strip(), get_config()
-        )
-        if config_error and "API_KEY is not set" not in config_error:
-            raise HTTPException(status_code=400, detail=config_error)
-
     if "OPENAI_SERVICE_TIER" in payload.updates:
         # Reject an unusable tier at save time rather than on the first clip job.
+        # This runs before the LLM check so a payload that changes both is judged
+        # on the tier it sets, not on the one it replaces.
         service_tier_error = get_openai_service_tier_error(
             payload.updates["OPENAI_SERVICE_TIER"]
         )
         if service_tier_error:
             raise HTTPException(status_code=400, detail=service_tier_error)
+
+    if "LLM" in payload.updates:
+        config_error = _get_missing_llm_key_error(
+            payload.updates["LLM"].strip(), get_config()
+        )
+        if (
+            config_error
+            and "API_KEY is not set" not in config_error
+            # An already-stored tier is not a reason to reject an LLM change.
+            # The tier this request sets, if any, was validated just above.
+            and not config_error.startswith("OPENAI_SERVICE_TIER=")
+        ):
+            raise HTTPException(status_code=400, detail=config_error)
 
     if "TRANSCRIPTION_PROVIDER" in payload.updates:
         provider = payload.updates["TRANSCRIPTION_PROVIDER"].strip().lower()

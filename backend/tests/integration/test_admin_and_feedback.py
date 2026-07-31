@@ -3,6 +3,7 @@ import importlib.util
 import pytest
 from sqlalchemy import text
 
+from src.config import get_config
 from src.runtime_settings import load_runtime_settings_cache
 from tests.fixtures.factories import create_user
 
@@ -65,6 +66,50 @@ async def test_runtime_settings_reject_unknown_openai_service_tier(
 
     assert response.status_code == 400
     assert "turbo" in response.json()["detail"]
+
+
+async def test_llm_update_is_not_blocked_by_a_stale_service_tier(
+    client, db_session, auth_headers
+):
+    # A bad tier can reach the config from .env without ever passing through
+    # this route. It must not lock the admin out of changing LLM — least of all
+    # in the same request that corrects it.
+    runtime_config = get_config()
+    runtime_config.openai_api_key = "sk-test"
+    runtime_config.openai_service_tier = "turbo"
+    await create_user(
+        db_session,
+        user_id="user-1",
+        email="owner@example.com",
+        is_admin=True,
+    )
+    await db_session.commit()
+
+    try:
+        response = await client.patch(
+            "/admin/runtime-settings",
+            headers=auth_headers,
+            json={
+                "updates": {
+                    "LLM": "openai:gpt-5.2",
+                    "OPENAI_SERVICE_TIER": "flex",
+                }
+            },
+        )
+
+        assert response.status_code == 200
+    finally:
+        await db_session.execute(
+            text(
+                "DELETE FROM app_settings "
+                "WHERE setting_key IN ('LLM', 'OPENAI_SERVICE_TIER')"
+            )
+        )
+        await db_session.commit()
+        # The PATCH handler refreshed the module-global settings cache from the
+        # saved rows; reload after cleanup so no state leaks into other tests.
+        await load_runtime_settings_cache(db_session)
+        await db_session.rollback()
 
 
 @pytest.mark.asyncio
