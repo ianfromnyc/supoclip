@@ -29,5 +29,5 @@ applies to the repository.
 
 ## Development
 
-See [README.md](README.md) and [CLAUDE.md](CLAUDE.md) for local development
+See [README.md](README.md) and [AGENTS.md](AGENTS.md) for local development
 instructions.

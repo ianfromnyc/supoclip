@@ -253,7 +253,7 @@ For production use:
 
 ## Next Steps
 
-- Read the full documentation in `CLAUDE.md`
+- Read the full documentation in `AGENTS.md`
 - Check out the API docs at http://localhost:8000/docs
 - View example clips in the frontend
 - Customize fonts by adding TTF files to `backend/fonts/`
