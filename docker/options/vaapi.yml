@@ -18,6 +18,14 @@
 # outright on hosts without /dev/dri.
 services:
   backend:
+    env_file:
+      # VIDEO_ENCODER and VAAPI_DEVICE ride along with the include rather than
+      # being attached in docker-compose.yml, so commenting this file out
+      # actually disables VAAPI instead of leaving the containers asking for a
+      # GPU encoder they no longer have. Paths resolve relative to THIS file's
+      # directory, hence ../../ back to the repo root.
+      - path: ../../.env.vaapi
+        required: false
     devices:
       # The whole directory is mapped rather than a single node so
       # VAAPI_DEVICE can name any of them. `ls -l /dev/dri/by-path` shows which
@@ -28,5 +36,8 @@ services:
   # The worker does the actual encoding, so it needs the GPU too — the backend
   # only re-encodes on clip edits and exports.
   worker:
+    env_file:
+      - path: ../../.env.vaapi
+        required: false
     devices:
       - /dev/dri:/dev/dri

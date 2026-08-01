@@ -160,14 +160,21 @@ cp .env.vaapi.example .env.vaapi          # or .env.whisperx / .env.tunnel / .en
 ```
 
 Then `docker compose up -d`. To disable it, comment the line back out and run
-`docker compose up -d --remove-orphans` so the service is torn down; delete the
-`.env.<option>` too, or `./start.sh` will point out the mismatch.
+`docker compose up -d --remove-orphans` — that recreates the containers without
+the add-on and removes its service. Deleting the `.env.<option>` afterwards is
+optional tidying; `./start.sh` mentions a leftover file so it does not sit there
+looking active.
+
+The `--remove-orphans` is what does the work. Commenting the include out on its
+own leaves the add-on's service running as an orphan, and containers keep the
+environment they were created with until they are replaced.
 
 Rules worth internalising:
 
 - **Both halves or neither.** An include with no settings file starts an
-  unconfigured service; a settings file with no include configures something
-  that is not running. `./start.sh` warns about either.
+  unconfigured service; a settings file with no include does nothing at all,
+  because each add-on's settings are attached by its own overlay rather than by
+  the base template. `./start.sh` warns about either.
 - **Uncomment exactly one `llama-*.yml`.** They all define the same `llama`
   service, one per hardware backend, and share one `.env.llama`.
 - **A wrong include path is fatal.** Compose has no optional includes: a `path`

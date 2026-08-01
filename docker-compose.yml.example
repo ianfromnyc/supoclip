@@ -120,19 +120,16 @@ services:
       - clips:/app/clips
       - ./backend/fonts:/app/fonts
       - ./backend/transitions:/app/transitions
-    env_file:
-      # Per-add-on settings, each copied by you from its .example. A file that
-      # is not there is skipped rather than failing the stack, so an add-on you
-      # have not enabled is simply absent — and the defaults in config.py are
-      # the same values the removed `environment:` lines used to supply.
-      #
-      # Anything owned by one of these files MUST NOT also appear under
-      # `environment:` below: `environment:` always wins, even when it
-      # interpolates to an empty string, which would silently shadow the file.
-      - path: .env.vaapi
-        required: false
-      - path: .env.whisperx
-        required: false
+    # No env_file here on purpose. Each add-on's overlay attaches its own
+    # .env.<option> to this service, so commenting the include out really does
+    # disable the add-on. Attaching them here instead would read the file
+    # whether or not the include was active, leaving this container configured
+    # for a service that is not running.
+    #
+    # Whatever an overlay contributes, it MUST NOT also appear under
+    # `environment:` below: `environment:` always wins, even when it
+    # interpolates to an empty string, which would silently shadow the file.
+    # The defaults in config.py cover the add-on-disabled case.
     environment:
       - PYTHONPATH=/app
       - PYTHONUNBUFFERED=1
@@ -219,19 +216,16 @@ services:
       - clips:/app/clips
       - ./backend/fonts:/app/fonts
       - ./backend/transitions:/app/transitions
-    env_file:
-      # Per-add-on settings, each copied by you from its .example. A file that
-      # is not there is skipped rather than failing the stack, so an add-on you
-      # have not enabled is simply absent — and the defaults in config.py are
-      # the same values the removed `environment:` lines used to supply.
-      #
-      # Anything owned by one of these files MUST NOT also appear under
-      # `environment:` below: `environment:` always wins, even when it
-      # interpolates to an empty string, which would silently shadow the file.
-      - path: .env.vaapi
-        required: false
-      - path: .env.whisperx
-        required: false
+    # No env_file here on purpose. Each add-on's overlay attaches its own
+    # .env.<option> to this service, so commenting the include out really does
+    # disable the add-on. Attaching them here instead would read the file
+    # whether or not the include was active, leaving this container configured
+    # for a service that is not running.
+    #
+    # Whatever an overlay contributes, it MUST NOT also appear under
+    # `environment:` below: `environment:` always wins, even when it
+    # interpolates to an empty string, which would silently shadow the file.
+    # The defaults in config.py cover the add-on-disabled case.
     environment:
       - PYTHONPATH=/app
       - PYTHONUNBUFFERED=1

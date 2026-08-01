@@ -70,8 +70,16 @@ Mechanics worth knowing when editing these — all verified on Compose v5.2.0:
   `required: false` is silently ignored — hence comment-driven toggling. Include
   long syntax accepts only `path`, `project_directory`, `env_file`.
 - Service-level `env_file` **does** honour `required: false`: a missing file is
-  skipped silently. That is what lets `backend`/`worker` list `.env.vaapi` and
-  `.env.whisperx` unconditionally.
+  skipped silently, so an add-on whose settings file was never copied still
+  parses.
+- Each overlay attaches its own `.env.<option>` to whichever services read it —
+  `vaapi.yml` and `whisperx.yml` add one to `backend` and `worker`, not the root
+  template. That is what makes the include the real toggle: attached in
+  `docker-compose.yml` instead, the file would be read whether or not the
+  include was active, so disabling the add-on would leave the containers
+  configured for a service that is no longer in the stack. Two overlays
+  attaching to the same service merge rather than clobber (verified with
+  `vaapi` + `whisperx` both on).
 - `environment:` **always** outranks `env_file` — including `VAR=${VAR:-}`
   rendering `VAR: ""` and a bare `VAR` rendering `VAR: null`, both of which
   shadow the file. So a variable owned by a scoped file must be **absent** from

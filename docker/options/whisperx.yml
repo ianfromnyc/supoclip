@@ -76,9 +76,21 @@ services:
   # as a union with the root file's (postgres, redis, backend), so nothing is
   # lost; `docker compose ps` shows the worker Created, waiting on whisperx.
   worker:
+    env_file:
+      - path: ../../.env.whisperx
+        required: false
     depends_on:
       whisperx:
         condition: service_healthy
+
+  # TRANSCRIPTION_PROVIDER and WHISPERX_API_URL ride along with the include
+  # rather than being attached in docker-compose.yml, so commenting this file
+  # out actually reverts to AssemblyAI instead of leaving both services
+  # pointed at a whisperx host that is no longer in the stack.
+  backend:
+    env_file:
+      - path: ../../.env.whisperx
+        required: false
 
 volumes:
   whisperx_cache:
