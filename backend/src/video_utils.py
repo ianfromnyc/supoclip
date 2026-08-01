@@ -72,7 +72,7 @@ class VideoProcessor:
 
 
 def _prepare_audio_for_transcription(video_path: Path) -> Path:
-    """Extract a compact audio-only file before uploading to AssemblyAI."""
+    """Extract a compact audio-only file before uploading to the transcription provider."""
     audio_path = video_path.with_name(f"{video_path.stem}.assemblyai.mp3")
     if audio_path.exists() and audio_path.stat().st_size > 0:
         return audio_path

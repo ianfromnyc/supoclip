@@ -124,7 +124,23 @@ def whisperx_config(monkeypatch):
     set_config_override(None)
 
 
-def test_configured_url_transcribes_over_http(monkeypatch, media_file, whisperx_config):
+@pytest.fixture
+def prepared_audio_passthrough(monkeypatch):
+    """Stub the audio extraction so tests never invoke real ffmpeg.
+
+    Returning the input unchanged mirrors the helper's no-ffmpeg fallback.
+    Patched on video_utils because the deferred import in
+    _transcribe_via_webservice re-resolves the name there at call time.
+    """
+    monkeypatch.setattr(
+        "src.video_utils._prepare_audio_for_transcription",
+        lambda video_path: video_path,
+    )
+
+
+def test_configured_url_transcribes_over_http(
+    monkeypatch, media_file, whisperx_config, prepared_audio_passthrough
+):
     calls = {}
 
     def fake_post(url, **kwargs):
@@ -148,6 +164,55 @@ def test_configured_url_transcribes_over_http(monkeypatch, media_file, whisperx_
         "[00:00 - 00:01] Speaker A: Hello there.",
         "[00:02 - 00:02] Speaker B: Hi!",
     ]
+
+
+def test_webservice_uploads_the_extracted_audio(
+    monkeypatch, tmp_path, media_file, whisperx_config
+):
+    """The upload must be the compact audio extraction, not the raw video."""
+    audio_path = tmp_path / "video.assemblyai.mp3"
+    audio_path.write_bytes(b"not really an mp3")
+    monkeypatch.setattr(
+        "src.video_utils._prepare_audio_for_transcription",
+        lambda video_path: audio_path,
+    )
+    calls = {}
+
+    def fake_post(url, **kwargs):
+        calls["files"] = kwargs["files"]
+        return httpx.Response(
+            200, json=ASR_PAYLOAD, request=httpx.Request("POST", url)
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    get_video_transcript_whisperx(media_file)
+
+    filename, _stream, _content_type = calls["files"]["audio_file"]
+    assert filename == "video.assemblyai.mp3"
+
+
+def test_webservice_caches_transcript_next_to_the_video(
+    monkeypatch, tmp_path, media_file, whisperx_config
+):
+    """The cache key is the source path; the audio sibling must not shift it."""
+    audio_path = tmp_path / "video.assemblyai.mp3"
+    audio_path.write_bytes(b"not really an mp3")
+    monkeypatch.setattr(
+        "src.video_utils._prepare_audio_for_transcription",
+        lambda video_path: audio_path,
+    )
+
+    def fake_post(url, **kwargs):
+        return httpx.Response(
+            200, json=ASR_PAYLOAD, request=httpx.Request("POST", url)
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    get_video_transcript_whisperx(media_file)
+
+    assert (tmp_path / "video.transcript_cache.json").exists()
 
 
 def test_unset_url_runs_whisperx_in_process(monkeypatch, media_file):
@@ -176,8 +241,28 @@ def test_unset_url_runs_whisperx_in_process(monkeypatch, media_file):
     assert called["video_path"] == media_file
 
 
+def test_webservice_falls_back_to_the_source_video(
+    monkeypatch, media_file, whisperx_config, prepared_audio_passthrough
+):
+    """When audio extraction cannot run, the source file is uploaded as-is."""
+    calls = {}
+
+    def fake_post(url, **kwargs):
+        calls["files"] = kwargs["files"]
+        return httpx.Response(
+            200, json=ASR_PAYLOAD, request=httpx.Request("POST", url)
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    get_video_transcript_whisperx(media_file)
+
+    filename, _stream, _content_type = calls["files"]["audio_file"]
+    assert filename == "video.mp4"
+
+
 def test_unreachable_service_raises_an_actionable_error(
-    monkeypatch, media_file, whisperx_config
+    monkeypatch, media_file, whisperx_config, prepared_audio_passthrough
 ):
     def refuse(url, **kwargs):
         raise httpx.ConnectError("connection refused")
@@ -193,7 +278,7 @@ def test_unreachable_service_raises_an_actionable_error(
 
 
 def test_error_response_reports_the_status_code(
-    monkeypatch, media_file, whisperx_config
+    monkeypatch, media_file, whisperx_config, prepared_audio_passthrough
 ):
     def fail(url, **kwargs):
         request = httpx.Request("POST", url)

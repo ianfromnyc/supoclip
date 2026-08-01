@@ -241,7 +241,11 @@ def _transcribe_via_webservice(video_path: Path, config) -> str:
     is how the Docker stack runs it: the heavy torch/whisperx stack lives in the
     add-on container (docker/options/whisperx.yml) rather than in our image.
     """
-    from .video_utils import cache_transcript_data, format_transcript_for_analysis
+    from .video_utils import (
+        _prepare_audio_for_transcription,
+        cache_transcript_data,
+        format_transcript_for_analysis,
+    )
 
     base_url = config.whisperx_api_url.rstrip("/")
     endpoint = f"{base_url}/asr"
@@ -260,12 +264,17 @@ def _transcribe_via_webservice(video_path: Path, config) -> str:
         config.whisperx_diarize,
     )
 
+    # Upload the compact audio extraction, not the raw video: the webservice
+    # buffers the whole upload in RAM, so a multi-GB source would OOM its
+    # container. When ffmpeg is unavailable this falls back to the source video.
+    media_path = _prepare_audio_for_transcription(video_path)
+
     try:
-        with open(video_path, "rb") as media:
+        with open(media_path, "rb") as media:
             response = httpx.post(
                 endpoint,
                 params=params,
-                files={"audio_file": (video_path.name, media, "application/octet-stream")},
+                files={"audio_file": (media_path.name, media, "application/octet-stream")},
                 timeout=config.whisperx_api_timeout_seconds,
             )
         response.raise_for_status()
