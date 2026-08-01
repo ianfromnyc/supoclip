@@ -64,8 +64,9 @@ cp docker-compose.yml.example docker-compose.yml
 ```
 
 Both `docker-compose.yml` and `.env` are yours to edit and stay untracked, so
-your setup survives every `git pull`. (`./start.sh` creates either one for you
-if it is missing.)
+your setup survives every `git pull`. (`./start.sh` creates only the
+`docker-compose.yml` copy for you if it is missing; `.env` you must copy
+yourself with `cp .env.example .env`, or `./start.sh` refuses to start.)
 
 Create a `.env` file in the root directory:
 

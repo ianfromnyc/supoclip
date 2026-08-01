@@ -40,7 +40,9 @@ It is git-ignored, so it is yours to edit and survives every `git pull`.
 
 ### 1. Configure Environment Variables
 
-Edit the `.env` file in the project root and add your API keys:
+Copy the template if you do not have a `.env` yet — `./start.sh` checks for it
+but does not create it (`cp .env.example .env`). Then edit `.env` in the
+project root and add your API keys:
 
 ```bash
 # Required for video transcription

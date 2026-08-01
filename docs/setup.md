@@ -233,7 +233,17 @@ the service itself. The file is read by all three containers.
 - The model is downloaded on first use into a named volume and can be several
   GB. Expect the first request to take a long time, and `ASR_MODEL=small` to be
   dramatically faster than the `large-v3` default on a CPU-only host.
-- On an NVIDIA host, switch the image to `:latest-gpu` and add `gpus: all`.
+- On an NVIDIA host, switch the image to `:latest-gpu` and give the service
+  the GPU. The `gpus: all` shorthand needs Compose v2.30+; this project's
+  floor is v2.24, so on 2.24–2.29 use the long form instead:
+
+  ```yaml
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - capabilities: [gpu]
+  ```
 
 Running SupoClip directly on the host rather than in Docker? Install the
 backend's optional extra (`cd backend && uv sync --extra whisperx`) and set the
