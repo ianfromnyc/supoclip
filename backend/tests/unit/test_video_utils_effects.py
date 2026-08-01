@@ -1,9 +1,19 @@
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 from pathlib import Path
+from types import SimpleNamespace
+import subprocess
+import threading
+import time
 
 import pytest
 
 from src import video_utils
+
+
+def _ffmpeg_result(returncode: int = 0, stderr: str = ""):
+    """Stand-in for the CompletedProcess run_ffmpeg_command() returns."""
+    return SimpleNamespace(returncode=returncode, stdout="", stderr=stderr)
 
 
 def test_get_scaled_font_size_preserves_visible_ui_range():
@@ -57,15 +67,10 @@ def test_prepare_audio_for_transcription_extracts_compact_mp3(tmp_path):
     video_path.write_bytes(b"video")
     commands = []
 
-    class Result:
-        returncode = 0
-        stdout = ""
-        stderr = ""
-
     def fake_run(command, timeout=900):
         commands.append(command)
         Path(command[-1]).write_bytes(b"audio")
-        return Result()
+        return _ffmpeg_result()
 
     with patch("src.video_utils.run_ffmpeg_command", side_effect=fake_run):
         audio_path = video_utils._prepare_audio_for_transcription(video_path)
@@ -75,6 +80,95 @@ def test_prepare_audio_for_transcription_extracts_compact_mp3(tmp_path):
     assert commands[0][0] == "ffmpeg"
     assert "-vn" in commands[0]
     assert "64k" in commands[0]
+
+
+def test_prepare_audio_for_transcription_publishes_atomically(tmp_path):
+    video_path = tmp_path / "source.mp4"
+    video_path.write_bytes(b"video")
+    final_path = tmp_path / "source.assemblyai.mp3"
+    observed = {}
+
+    def fake_run(command, timeout=900):
+        output_path = Path(command[-1])
+        observed["output_path"] = output_path
+        observed["final_visible_mid_write"] = final_path.exists()
+        output_path.write_bytes(b"audio")
+        return _ffmpeg_result()
+
+    with patch("src.video_utils.run_ffmpeg_command", side_effect=fake_run):
+        audio_path = video_utils._prepare_audio_for_transcription(video_path)
+
+    # ffmpeg must not write the published path directly, or a concurrent reader
+    # can pick up a half-written file and transcribe a truncated video.
+    assert observed["output_path"] != final_path
+    assert observed["final_visible_mid_write"] is False
+    assert audio_path == final_path
+    assert final_path.read_bytes() == b"audio"
+    assert list(tmp_path.glob("*.part.mp3")) == []
+
+
+def test_prepare_audio_for_transcription_serializes_concurrent_callers(tmp_path):
+    video_path = tmp_path / "source.mp4"
+    video_path.write_bytes(b"video")
+    counters = {"running": 0, "max_running": 0, "calls": 0}
+    counter_lock = threading.Lock()
+
+    def fake_run(command, timeout=900):
+        with counter_lock:
+            counters["calls"] += 1
+            counters["running"] += 1
+            counters["max_running"] = max(
+                counters["max_running"], counters["running"]
+            )
+        time.sleep(0.05)
+        Path(command[-1]).write_bytes(b"audio")
+        with counter_lock:
+            counters["running"] -= 1
+        return _ffmpeg_result()
+
+    with patch("src.video_utils.run_ffmpeg_command", side_effect=fake_run):
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(
+                pool.map(
+                    lambda _: video_utils._prepare_audio_for_transcription(video_path),
+                    range(2),
+                )
+            )
+
+    assert counters["max_running"] == 1
+    # The second caller waits on the lock, then reuses the finished extraction.
+    assert counters["calls"] == 1
+    assert results == [tmp_path / "source.assemblyai.mp3"] * 2
+
+
+def test_prepare_audio_for_transcription_removes_temp_on_ffmpeg_failure(tmp_path):
+    video_path = tmp_path / "source.mp4"
+    video_path.write_bytes(b"video")
+
+    def fake_run(command, timeout=900):
+        Path(command[-1]).write_bytes(b"partial")
+        return _ffmpeg_result(returncode=1, stderr="boom")
+
+    with patch("src.video_utils.run_ffmpeg_command", side_effect=fake_run):
+        result_path = video_utils._prepare_audio_for_transcription(video_path)
+
+    assert result_path == video_path
+    assert list(tmp_path.glob("*.mp3")) == []
+
+
+def test_prepare_audio_for_transcription_removes_temp_when_ffmpeg_raises(tmp_path):
+    video_path = tmp_path / "source.mp4"
+    video_path.write_bytes(b"video")
+
+    def fake_run(command, timeout=900):
+        Path(command[-1]).write_bytes(b"partial")
+        raise subprocess.TimeoutExpired(command, timeout)
+
+    with patch("src.video_utils.run_ffmpeg_command", side_effect=fake_run):
+        with pytest.raises(subprocess.TimeoutExpired):
+            video_utils._prepare_audio_for_transcription(video_path)
+
+    assert list(tmp_path.glob("*.mp3")) == []
 
 
 def test_apply_transition_effect_builds_ffmpeg_xfade_command(tmp_path):

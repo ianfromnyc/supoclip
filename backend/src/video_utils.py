@@ -9,7 +9,9 @@ import logging
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 import json
+import os
 import re
+import threading
 import uuid
 import shutil
 import subprocess
@@ -71,46 +73,90 @@ class VideoProcessor:
         self.font_path = str(resolved_font) if resolved_font else ""
 
 
+# The extracted audio path is a pure function of the source path, and the
+# downloader names sources after the YouTube video ID, so two tasks started from
+# the same URL target one file. With max_jobs=4 in the ARQ worker they race:
+# either two ffmpeg processes interleave writes, or the second caller reads a
+# file the first is still writing and transcribes a truncated video. One lock
+# per path serializes them, so the second caller waits and reuses the result.
+# The locks are keyed by path string and never evicted — one small entry per
+# source, which the TEMP_DIR cache already outlives.
+_AUDIO_PREP_LOCKS: Dict[str, threading.Lock] = {}
+_AUDIO_PREP_LOCKS_GUARD = threading.Lock()
+
+
+def _audio_prep_lock(audio_path: Path) -> threading.Lock:
+    """Return the shared lock guarding one extracted-audio path."""
+    key = str(audio_path)
+    with _AUDIO_PREP_LOCKS_GUARD:
+        lock = _AUDIO_PREP_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _AUDIO_PREP_LOCKS[key] = lock
+        return lock
+
+
 def _prepare_audio_for_transcription(video_path: Path) -> Path:
     """Extract a compact audio-only file before uploading to AssemblyAI."""
     audio_path = video_path.with_name(f"{video_path.stem}.assemblyai.mp3")
-    if audio_path.exists() and audio_path.stat().st_size > 0:
-        return audio_path
 
-    command = [
-        "ffmpeg",
-        "-y",
-        "-i",
-        str(video_path),
-        "-vn",
-        "-ac",
-        "1",
-        "-ar",
-        "16000",
-        "-b:a",
-        "64k",
-        str(audio_path),
-    ]
-    try:
-        result = run_ffmpeg_command(command, timeout=900)
-    except FileNotFoundError:
-        logger.warning(
-            "ffmpeg is not available; falling back to source video for transcription"
+    with _audio_prep_lock(audio_path):
+        if audio_path.exists() and audio_path.stat().st_size > 0:
+            return audio_path
+
+        # ffmpeg writes to a private path, then os.replace() publishes it in one
+        # atomic step. The lock only covers this process; the rename is what
+        # keeps a reader in another process (or container) from seeing a
+        # partial file.
+        temp_path = audio_path.with_name(
+            f"{audio_path.stem}.{uuid.uuid4().hex}.part.mp3"
         )
-        return video_path
+        command = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(video_path),
+            "-vn",
+            "-ac",
+            "1",
+            "-ar",
+            "16000",
+            "-b:a",
+            "64k",
+            str(temp_path),
+        ]
+        try:
+            try:
+                result = run_ffmpeg_command(command, timeout=900)
+            except FileNotFoundError:
+                logger.warning(
+                    "ffmpeg is not available; falling back to source video for transcription"
+                )
+                return video_path
 
-    if result.returncode != 0 or not audio_path.exists() or audio_path.stat().st_size == 0:
-        logger.warning(
-            "Failed to extract transcription audio with ffmpeg; falling back to source video"
-        )
-        return video_path
+            if (
+                result.returncode != 0
+                or not temp_path.exists()
+                or temp_path.stat().st_size == 0
+            ):
+                logger.warning(
+                    "Failed to extract transcription audio with ffmpeg; falling back to source video"
+                )
+                return video_path
 
-    logger.info(
-        "Prepared transcription audio: %s (%.2f MB)",
-        audio_path,
-        audio_path.stat().st_size / (1024 * 1024),
-    )
-    return audio_path
+            os.replace(temp_path, audio_path)
+
+            logger.info(
+                "Prepared transcription audio: %s (%.2f MB)",
+                audio_path,
+                audio_path.stat().st_size / (1024 * 1024),
+            )
+            return audio_path
+        finally:
+            # Nothing sweeps TEMP_DIR, so a partial file must not survive a
+            # failed run — including the subprocess timeout ffmpeg can raise.
+            # On success the rename already consumed the temp path.
+            temp_path.unlink(missing_ok=True)
 
 
 def _submit_and_wait_for_assemblyai_transcript(
