@@ -213,7 +213,16 @@ if [ -n "${LLM:-}" ]; then
     esac
 fi
 
-# Local WhisperX transcription does not need an AssemblyAI key.
+# Local WhisperX transcription does not need an AssemblyAI key. The whisperx
+# add-on keeps TRANSCRIPTION_PROVIDER in .env.whisperx, not in .env, and the
+# backend and worker read it from there through env_file — so read the same
+# file here, or a correctly enabled add-on with no AssemblyAI account would
+# still get the warning below. Sourced after .env so the scoped file wins,
+# matching which file owns the switch; TRANSCRIPTION_PROVIDER set directly in
+# .env (the bare-metal path) keeps working through `source .env` above.
+if [ -f .env.whisperx ]; then
+    source .env.whisperx
+fi
 if [ -z "$ASSEMBLY_AI_API_KEY" ] && [ "${TRANSCRIPTION_PROVIDER:-assemblyai}" != "whisperx" ]; then
     echo -e "${YELLOW}Warning: ASSEMBLY_AI_API_KEY is not set in .env${NC}"
     echo "Video transcription will not work without this key"
