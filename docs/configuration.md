@@ -2,11 +2,11 @@
 
 This guide explains the important environment variables used by SupoClip and how they affect behavior.
 
-Most settings are sourced from `.env.example`, `docker-compose.yml`, and the backend configuration code in `backend/src/config.py`.
+Most settings are sourced from `.env.example`, the `.env.<option>.example` files, `docker-compose.yml`, and the backend configuration code in `backend/src/config.py`.
 
 ## Configuration Strategy
 
-There are three main layers:
+There are four main layers:
 
 - Root `.env`
   - The main place to configure the app
@@ -20,7 +20,9 @@ There are three main layers:
 - Application defaults
   - Fallback values defined in the backend or frontend code
 
-In most cases, edit `.env` and then rebuild or restart the stack.
+In most cases, edit `.env` and then rebuild or restart the stack — unless the
+setting belongs to an add-on, in which case it goes in that add-on's
+`.env.<option>` and is ignored anywhere else.
 
 ## Required Settings
 
