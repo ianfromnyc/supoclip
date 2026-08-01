@@ -8,8 +8,21 @@ htmlcov/
 logs/
 temp/
 .env
+# Per-add-on settings (.env.vaapi, .env.whisperx, .env.tunnel, .env.llama),
+# each copied from the matching *.example, which stays tracked.
+.env.*
+!.env.example
+!.env.*.example
 *.m4a
 frontend/e2e/.seed.json
+
+# Your own copy of the stack, made with
+# `cp docker-compose.yml.example docker-compose.yml`. Keeping it untracked is
+# what lets you uncomment add-on includes without fighting every `git pull`.
+/docker-compose.yml
+
+# Local .gguf model files for the llama add-ons (docker/options/llama-*.yml).
+/models/
 
 # local demo / scratch artifacts (not for the repo)
 backend/demo_clips/

@@ -1,0 +1,81 @@
+# Local LLM: llama.cpp server, Intel GPU (SYCL).
+#
+# A convenience scaffold, not a tuned deployment — it starts an
+# OpenAI-compatible endpoint next to SupoClip so transcript analysis can run
+# without a cloud provider. Expect to tune the flags for your model and card.
+#
+# Enable by uncommenting EXACTLY ONE llama-*.yml include in docker-compose.yml
+# (they all define the same `llama` service), then:
+#
+#   cp .env.llama.example .env.llama
+#
+# All five variants share that one file. You must supply the model yourself:
+# put a .gguf in the directory LLAMA_MODELS_DIR names (default: models/ at
+# the repo root; an override in .env must be an absolute path) and
+# point LLAMA_ARG_MODEL at it. Without .env.llama the server has no model to
+# load and exits on startup.
+#
+# The other half of the pairing goes in the root .env, because compose feeds it
+# to the backend through `environment:`, which outranks any env_file:
+#
+#   LLM=openai:local
+#   OPENAI_BASE_URL=http://llama:8080/v1
+#
+# For Intel Arc / Xe graphics via oneAPI SYCL.
+services:
+  llama:
+    image: ghcr.io/ggml-org/llama.cpp:server-intel
+    container_name: supoclip-llama
+    env_file:
+      # Resolved relative to THIS file's directory, not the project root.
+      #
+      # The service is configured entirely through llama-server's own
+      # LLAMA_ARG_* variables in that file, and deliberately passes no
+      # command-line arguments: a command-line flag beats the matching
+      # environment variable, so an argument here would override — and
+      # silently ignore — whatever you put in .env.llama.
+      - path: ../../.env.llama
+        required: false
+    ports:
+      # Loopback only: SupoClip reaches it over the compose network at
+      # http://llama:8080. The published port is for curl and llama.cpp's own
+      # web UI, and defaults to 9292 to stay clear of anything on 8080.
+      - "127.0.0.1:${LLAMA_PORT:-9292}:8080"
+    volumes:
+      # Read-only: the server never writes to the model directory. The host
+      # path is a stack-level layout choice, so it stays in the root .env —
+      # compose can only interpolate from there.
+      #
+      # A relative path here resolves against this file's directory
+      # (docker/options/), not the project root — hence the ../../ default,
+      # which lands on <repo>/models. The same rule applies to a value set
+      # in .env, so use an absolute path there.
+      - ${LLAMA_MODELS_DIR:-../../models}:/models:ro
+    devices:
+      # The Intel GPU render nodes.
+      - /dev/dri:/dev/dri
+    restart: unless-stopped
+    healthcheck:
+      # /health reports 200 only once the model is loaded into memory.
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  # Hold the worker back until the model is loaded. Without this ordering,
+  # `docker compose up -d` starts the worker at once, and it can pull queued
+  # jobs while llama is still loading (up to the healthcheck's 120s
+  # start_period) — those jobs fail with connection errors against
+  # http://llama:8080/v1. Compose merges this `depends_on` as a union with
+  # the root file's, so postgres/redis/backend stay required too.
+  #
+  # The trade-off is real: if llama never becomes healthy — most often a
+  # wrong LLAMA_ARG_MODEL path, which makes llama-server exit at startup —
+  # the worker does not start at all. That turns "LLM calls fail per job"
+  # into "no video processing at all". `docker compose ps` shows which
+  # service is holding the stack up.
+  worker:
+    depends_on:
+      llama:
+        condition: service_healthy

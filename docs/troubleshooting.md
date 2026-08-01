@@ -38,6 +38,8 @@ docker-compose logs -f redis
 ### Common causes
 
 - Docker Desktop is not running
+- `docker-compose.yml` does not exist yet — the repo ships
+  `docker-compose.yml.example` and you make your own copy
 - `.env` is missing or incomplete
 - PostgreSQL or Redis failed health checks
 - frontend build-time variables are invalid
@@ -46,6 +48,8 @@ docker-compose logs -f redis
 ### Fixes
 
 - Confirm Docker is running with `docker info`
+- If Compose reports no configuration file, create yours:
+  `cp docker-compose.yml.example docker-compose.yml` (or just run `./start.sh`)
 - Rebuild after config changes:
 
 ```bash
@@ -372,6 +376,66 @@ docker-compose up -d --build
 ```bash
 docker-compose down -v
 docker-compose up -d --build
+```
+
+## An Optional Add-on Is Not Running
+
+### Symptom
+
+You uncommented an include in `docker-compose.yml`, but the service never
+appears — or Compose refuses to parse the file at all.
+
+### Most likely causes
+
+- **Compose is older than v5.0.0.** Check with `docker compose version`. Every
+  add-on merges into a service the base stack also defines, and partial-service
+  includes only work from v5.0.0 — on any v2.x, up to and including the final
+  v2.40.3, Compose reports `services.backend conflicts with imported resource`
+  and refuses to start anything. Update Docker Desktop or the Compose plugin;
+  there is no workaround short of inlining the overlay by hand
+- Only the add-on's own line is uncommented; the `include:` line above it is
+  still a comment, so the whole block is inert
+- Its `.env.<option>` was never created. Missing scoped env files are skipped
+  silently by design, so the service starts with no configuration at all
+- A typo in the `path:`. Compose has no optional includes, so a file that does
+  not exist is a hard parse error rather than something it skips
+- More than one `llama-*.yml` is enabled. They all define the same `llama`
+  service, and the last one wins silently
+- A setting was put in the wrong file. `VIDEO_ENCODER`, `TRANSCRIPTION_PROVIDER`,
+  the `WHISPERX_*` set, `HF_TOKEN` and `TUNNEL_TOKEN` are read only from their
+  `.env.<option>`; `LLM` and `OPENAI_BASE_URL` are read only from `.env`
+
+### Fixes
+
+- Run `./start.sh`, which checks both halves of every add-on and names the
+  missing one
+- List what Compose actually resolved:
+
+```bash
+docker compose config --services
+```
+
+- Check the merged result for one service, e.g. the GPU mapping from
+  `vaapi.yml`:
+
+```bash
+docker compose config | grep -A3 devices
+```
+
+- Confirm a scoped setting actually reached the container:
+
+```bash
+docker compose config | grep TRANSCRIPTION_PROVIDER
+```
+
+  Nothing back means `.env.whisperx` is missing or does not define it. Note that
+  `environment:` in `docker-compose.yml` outranks any env file, so re-adding a
+  migrated variable there would shadow the scoped file rather than help.
+
+- After commenting an include back out, tear the service down:
+
+```bash
+docker compose up -d --remove-orphans
 ```
 
 ## What to Collect Before Filing an Issue

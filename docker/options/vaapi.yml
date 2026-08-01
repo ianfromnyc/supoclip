@@ -1,0 +1,43 @@
+# VAAPI hardware video encoding (Intel/AMD GPUs).
+#
+# Enable by uncommenting this file's include line in docker-compose.yml, then:
+#
+#   cp .env.vaapi.example .env.vaapi
+#
+# Both steps matter. This file only hands the container the GPU; the encoder
+# switch is VIDEO_ENCODER=vaapi, and that lives in .env.vaapi — NOT in the root
+# .env, which stopped carrying it when the add-on settings were scoped. Enable
+# the include alone and the GPU is mapped but unused, with every clip still
+# rendering on the CPU. VAAPI_DEVICE is in the same file, for picking a render
+# node when the host has more than one GPU.
+#
+# To disable: comment the include back out and run
+# `docker compose up -d --remove-orphans`.
+#
+# Kept out of the base stack because a `devices:` entry fails container creation
+# outright on hosts without /dev/dri.
+services:
+  backend:
+    env_file:
+      # VIDEO_ENCODER and VAAPI_DEVICE ride along with the include rather than
+      # being attached in docker-compose.yml, so commenting this file out
+      # actually disables VAAPI instead of leaving the containers asking for a
+      # GPU encoder they no longer have. Paths resolve relative to THIS file's
+      # directory, hence ../../ back to the repo root.
+      - path: ../../.env.vaapi
+        required: false
+    devices:
+      # The whole directory is mapped rather than a single node so
+      # VAAPI_DEVICE can name any of them. `ls -l /dev/dri/by-path` shows which
+      # PCI device backs each node, or probe one with
+      # `vainfo --display drm --device /dev/dri/renderD129`.
+      - /dev/dri:/dev/dri
+
+  # The worker does the actual encoding, so it needs the GPU too — the backend
+  # only re-encodes on clip edits and exports.
+  worker:
+    env_file:
+      - path: ../../.env.vaapi
+        required: false
+    devices:
+      - /dev/dri:/dev/dri

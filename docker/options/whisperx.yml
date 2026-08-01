@@ -1,0 +1,97 @@
+# Local transcription with WhisperX — no AssemblyAI account, nothing leaves
+# the host.
+#
+# Enable by uncommenting this file's include line in docker-compose.yml, then:
+#
+#   cp .env.whisperx.example .env.whisperx
+#
+# That one file carries the whole switch — TRANSCRIPTION_PROVIDER and
+# WHISPERX_API_URL for the backend and worker, ASR_MODEL and HF_TOKEN for this
+# service — so forgetting it leaves the stack quietly on AssemblyAI rather than
+# half-enabled.
+#
+# Speaker labels (diarization) additionally need HF_TOKEN — a Hugging Face
+# token that has accepted the pyannote model licences. Without one the service
+# still transcribes, just without "Speaker A/B" attribution.
+#
+# Expect the first request to take a long while: the model is downloaded on
+# demand into the whisperx_cache volume, and a large-v3 transcription on CPU
+# runs slower than real time. ASR_MODEL=small or base trades accuracy for a lot
+# of speed.
+services:
+  whisperx:
+    # CPU image (amd64 + arm64). On an NVIDIA host, switch to `:latest-gpu`
+    # and give the container a GPU for a large speed-up — add either
+    # `gpus: all`, or the equivalent long form used by llama-cuda.yml:
+    #   deploy:
+    #     resources:
+    #       reservations:
+    #         devices:
+    #           - capabilities: [gpu]
+    image: onerahmet/openai-whisper-asr-webservice:latest
+    container_name: supoclip-whisperx
+    env_file:
+      # env_file paths inside an included file resolve relative to THIS file's
+      # directory rather than the project root, hence `../../` to climb back
+      # out of docker/options/.
+      #
+      # ASR_MODEL and HF_TOKEN live in there under the image's own variable
+      # names, not ours, because compose only interpolates ${...} from the root
+      # .env — a scoped file can reach a service only through names that
+      # service already understands.
+      - path: ../../.env.whisperx
+        required: false
+    environment:
+      # Deliberately not in .env.whisperx: the backend maps this engine's exact
+      # output format, so it is structural rather than a knob. Anything listed
+      # under `environment:` outranks env_file and would silently shadow the
+      # scoped file, which is why nothing else appears here.
+      - ASR_ENGINE=whisperx
+    ports:
+      # Published on loopback purely for debugging — the backend reaches the
+      # service over the compose network. Browse http://127.0.0.1:9000/docs to
+      # try a file by hand.
+      - "127.0.0.1:${WHISPERX_PORT:-9000}:9000"
+    volumes:
+      # Whisper checkpoints and the pyannote/wav2vec2 models all land under
+      # ~/.cache, and re-downloading several GB on every recreate is painful.
+      - whisperx_cache:/root/.cache
+    restart: unless-stopped
+    healthcheck:
+      # The API only starts serving once the model is loaded, so this doubles
+      # as a "ready to transcribe" signal. start_period covers the first
+      # download; until it elapses, failures do not mark the container
+      # unhealthy.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9000/docs', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+  # Hold the worker back until WhisperX is actually ready to transcribe. The
+  # 600s start_period above is exactly the window this closes: without it the
+  # worker comes up immediately, pulls queued jobs while the model is still
+  # downloading, and every one of them fails with a connection error — and
+  # transcription is mandatory for every task. Compose merges this depends_on
+  # as a union with the root file's (postgres, redis, backend), so nothing is
+  # lost; `docker compose ps` shows the worker Created, waiting on whisperx.
+  worker:
+    env_file:
+      - path: ../../.env.whisperx
+        required: false
+    depends_on:
+      whisperx:
+        condition: service_healthy
+
+  # TRANSCRIPTION_PROVIDER and WHISPERX_API_URL ride along with the include
+  # rather than being attached in docker-compose.yml, so commenting this file
+  # out actually reverts to AssemblyAI instead of leaving both services
+  # pointed at a whisperx host that is no longer in the stack.
+  backend:
+    env_file:
+      - path: ../../.env.whisperx
+        required: false
+
+volumes:
+  whisperx_cache:
+    driver: local

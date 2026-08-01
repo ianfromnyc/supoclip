@@ -2,20 +2,27 @@
 
 This guide explains the important environment variables used by SupoClip and how they affect behavior.
 
-Most settings are sourced from `.env.example`, `docker-compose.yml`, and the backend configuration code in `backend/src/config.py`.
+Most settings are sourced from `.env.example`, the `.env.<option>.example` files, `docker-compose.yml`, and the backend configuration code in `backend/src/config.py`.
 
 ## Configuration Strategy
 
-There are three main layers:
+There are four main layers:
 
 - Root `.env`
   - The main place to configure the app
 - `docker-compose.yml`
-  - Supplies environment variables into the running containers
+  - Your own copy of `docker-compose.yml.example`. Supplies environment
+    variables into the running containers, and its commented-out `include:`
+    block is where optional add-ons are turned on
+- `.env.<option>`
+  - One file per enabled add-on, copied from `.env.<option>.example`, holding
+    only that add-on's runtime configuration
 - Application defaults
   - Fallback values defined in the backend or frontend code
 
-In most cases, edit `.env` and then rebuild or restart the stack.
+In most cases, edit `.env` and then rebuild or restart the stack — unless the
+setting belongs to an add-on, in which case it goes in that add-on's
+`.env.<option>` and is ignored anywhere else.
 
 ## Required Settings
 
@@ -82,7 +89,7 @@ deployment. The backend logs a deprecation warning when it is used; migrate to
 | `NEXT_PUBLIC_LANDING_ONLY_MODE` | `false` | Restricts the UI to the landing page only |
 | `TEMP_DIR` | `/app/uploads` in Docker | Temporary backend working directory for uploads and processing |
 | `CORS_ORIGINS` | `http://localhost:3001,http://127.0.0.1:3001,http://localhost:3107,http://sp.localhost:3107` | Allowed browser origins for backend requests, including direct browser video uploads. Covers both the port Docker publishes (3001, on either loopback host) and the local `next dev` port (3107). The built-in default lives in `Config.cors_origins` (`backend/src/config.py`); `.env.example` additionally lists `http://supoclip.localhost:3107` |
-| `CLOUDFLARE_TUNNEL_TOKEN` | empty | Cloudflare Tunnel connector token. When set, `./start.sh` enables the Compose `tunnel` profile so the optional `cloudflared` service provides public ingress. See [Setup](./setup.md#public-access-with-cloudflare-tunnel-optional) |
+Add-on settings are **not** in this table, because they are not in `.env`. Each optional service keeps its configuration in its own `.env.<option>` file — `TUNNEL_TOKEN` in `.env.tunnel`, `VIDEO_ENCODER` and `VAAPI_DEVICE` in `.env.vaapi`, `TRANSCRIPTION_PROVIDER` and the `WHISPERX_*` set in `.env.whisperx`, `LLAMA_ARG_*` in `.env.llama`. See [Setup](./setup.md#which-file-does-a-setting-go-in).
 
 ## Analytics Settings
 

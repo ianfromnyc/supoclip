@@ -13,8 +13,13 @@ Current repository structure:
 - `frontend/`
   - Next.js app
   - App Router pages, API routes, auth, Prisma schema, UI components
+- `docker/`
+  - `backend.Dockerfile`, `frontend.Dockerfile`, `mcp.Dockerfile`
+  - `options/` — optional compose overlays, enabled by uncommenting an
+    `include:` line in your `docker-compose.yml`
 - Root files
-  - `docker-compose.yml`
+  - `docker-compose.yml.example` (copy it to `docker-compose.yml`, which is
+    untracked)
   - `init.sql`
   - `.env.example`
   - `start.sh`
@@ -291,8 +296,9 @@ docker-compose logs -f postgres
 docker-compose logs -f redis
 ```
 
-With `VAAPI_ENABLED=true` in `.env`, use the `backend-vaapi` and
-`worker-vaapi` service names instead — container names are unchanged.
+Service names are the same whichever add-ons you enabled, since the overlays in
+`docker/options/` merge extra keys into these services rather than replacing
+them.
 
 ## Codebase Conventions
 

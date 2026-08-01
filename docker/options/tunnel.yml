@@ -1,0 +1,45 @@
+# Cloudflare Tunnel — optional public ingress without opening a port.
+#
+# Enable by uncommenting this file's include line in docker-compose.yml, then:
+#
+#   cp .env.tunnel.example .env.tunnel
+#
+# and put your connector token in it (Zero Trust dashboard -> Networks ->
+# Tunnels -> Create a tunnel -> Cloudflared connector). The credential that
+# publishes your app to the internet lives in exactly one file — but deleting
+# that file does not stop publishing: a running cloudflared keeps its token and
+# restarts unless-stopped. To stop public ingress, comment this include back
+# out in docker-compose.yml and run `docker compose up -d --remove-orphans`;
+# delete .env.tunnel afterwards to remove the credential from disk.
+#
+# Hostname -> service routing is configured in the dashboard, not here: in the
+# tunnel's Public Hostname tab point the app hostname at http://frontend:3107
+# and the API hostname at http://backend:8000. Also switch NEXT_PUBLIC_APP_URL,
+# NEXT_PUBLIC_API_URL, BETTER_AUTH_URL and CORS_ORIGINS to those public
+# hostnames (see .env.example) or browser sign-in and uploads will fail.
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:2026.7.3 # exact tags only upstream; bump periodically
+    container_name: supoclip-cloudflared
+    # Metrics/debug endpoint binds to loopback only: the healthcheck below execs
+    # inside this container, so nothing on the compose network needs to reach it.
+    command: ["tunnel", "--no-autoupdate", "--metrics", "127.0.0.1:2000", "run"]
+    env_file:
+      # Resolved relative to THIS file's directory, not the project root.
+      # The file names the variable TUNNEL_TOKEN because that is what
+      # cloudflared itself reads; there is no `environment:` block here, since
+      # one would outrank the file and shadow the token.
+      - path: ../../.env.tunnel
+        required: false
+    depends_on:
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "cloudflared", "tunnel", "--metrics", "localhost:2000", "ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s

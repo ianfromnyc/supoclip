@@ -21,13 +21,16 @@ def test_shipped_config_never_leaves_openai_base_url_blank():
         ]
         assert assignments == [HOSTED_OPENAI_BASE_URL], env_example
 
-    compose = (REPO_ROOT / "docker-compose.yml").read_text()
+    # The repo ships the example; docker-compose.yml is the user's own untracked
+    # copy of it, so the example is what has to be right.
+    compose = (REPO_ROOT / "docker-compose.yml.example").read_text()
     # Compose substitutes its own default, so an older .env cannot reintroduce
     # the blank value inside the container.
     assert "OPENAI_BASE_URL=${OPENAI_BASE_URL:-}" not in compose
-    assert (
-        f"OPENAI_BASE_URL=${{OPENAI_BASE_URL:-{HOSTED_OPENAI_BASE_URL}}}" in compose
-    )
+    # Once for `backend`, once for `worker`.
+    assert compose.count(
+        f"OPENAI_BASE_URL=${{OPENAI_BASE_URL:-{HOSTED_OPENAI_BASE_URL}}}"
+    ) == 2
 
 
 def test_openai_base_url_and_service_tier_are_read_from_env(monkeypatch):

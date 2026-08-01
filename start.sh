@@ -32,6 +32,23 @@ if [ ! -f .env ]; then
     exit 1
 fi
 
+# docker-compose.yml is not tracked in git: it is your own copy of the example,
+# so the optional add-on includes you uncomment survive every `git pull`. Make
+# the copy on first run rather than making people read about it first.
+if [ ! -f docker-compose.yml ]; then
+    if [ ! -f docker-compose.yml.example ]; then
+        echo -e "${RED}Error: neither docker-compose.yml nor docker-compose.yml.example found!${NC}"
+        echo "Run this script from the SupoClip checkout."
+        echo ""
+        exit 1
+    fi
+    cp docker-compose.yml.example docker-compose.yml
+    echo -e "${GREEN}Created docker-compose.yml from docker-compose.yml.example${NC}"
+    echo "Enable optional add-ons (GPU encoding, local transcription, local LLM,"
+    echo "Cloudflare Tunnel) by uncommenting their include lines at the top of it."
+    echo ""
+fi
+
 # Check if required API keys are set
 source .env
 
@@ -184,6 +201,222 @@ else
     echo ""
 fi
 
+# Check if Docker is running
+if ! docker info > /dev/null 2>&1; then
+    echo -e "${RED}Error: Docker is not running!${NC}"
+    echo "Please start Docker Desktop and try again."
+    echo ""
+    exit 1
+fi
+
+# Determine which Docker Compose command to use.
+if docker compose version &> /dev/null; then
+    DOCKER_COMPOSE="docker compose"
+elif command -v docker-compose &> /dev/null; then
+    DOCKER_COMPOSE="docker-compose"
+else
+    echo -e "${RED}Error: Docker Compose is not installed!${NC}"
+    echo "Please install the Docker Compose plugin and try again."
+    echo ""
+    exit 1
+fi
+
+# The add-ons need Compose v5.0.0+. `include:` itself landed in v2.24, but every
+# overlay in docker/options/ merges into a service the root file also defines —
+# vaapi.yml adds devices: to backend and worker, the rest add a worker
+# depends_on entry — and partial-service includes only work from v5.0.0. On
+# v2.x, up to and including the final v2.40.3, the same file fails with
+# "services.backend conflicts with imported resource" rather than merging.
+#
+# Only the major version matters because the floor is x.0.0. Non-numeric output
+# is treated as too old, which also catches the legacy v1 `docker-compose`.
+COMPOSE_VERSION=$($DOCKER_COMPOSE version --short 2>/dev/null || true)
+COMPOSE_VERSION=${COMPOSE_VERSION#v}
+COMPOSE_MAJOR=$(echo "$COMPOSE_VERSION" | cut -d. -f1)
+case "$COMPOSE_MAJOR" in ''|*[!0-9]*) COMPOSE_MAJOR=0 ;; esac
+if [ "$COMPOSE_MAJOR" -lt 5 ]; then
+    echo -e "${RED}Error: Docker Compose v5.0.0 or newer is required (found ${COMPOSE_VERSION:-unknown})!${NC}"
+    echo "Older releases cannot merge the optional add-ons in docker/options/ into the"
+    echo "base stack: they report 'conflicts with imported resource' and refuse to start."
+    echo "Update Docker Desktop or the Docker Compose plugin and try again."
+    echo ""
+    exit 1
+fi
+
+# Every add-on has two halves that must agree: an uncommented include in
+# docker-compose.yml, and a .env.<option> copied from its .example. Enabling one
+# without the other fails quietly — a service with no configuration, or
+# configuration nothing reads — so check both directions here. This script never
+# edits docker-compose.yml or creates the scoped files: they are yours, and
+# guessing at them is how you end up with a stack nobody can reason about.
+
+COMPOSE_SERVICES="$($DOCKER_COMPOSE config --services 2>/dev/null || true)"
+
+# True when $1's add-on is part of the stack. Tested two ways because they fail
+# differently: the include line is what the docs tell you to edit (and is the
+# only signal for vaapi, which adds no service), while the service list is what
+# Compose actually resolved.
+option_is_enabled() {
+    local option="$1"
+
+    # An uncommented `- path: docker/options/<option>*.yml` line. The llama
+    # variants share one prefix, hence the trailing glob.
+    if grep -qE "^[[:space:]]*-[[:space:]]*path:[[:space:]]*docker/options/${option}[a-z-]*\.yml" \
+        docker-compose.yml 2>/dev/null; then
+        return 0
+    fi
+
+    case "$option" in
+        whisperx) printf '%s\n' "$COMPOSE_SERVICES" | grep -qx "whisperx" ;;
+        tunnel)   printf '%s\n' "$COMPOSE_SERVICES" | grep -qx "cloudflared" ;;
+        llama)    printf '%s\n' "$COMPOSE_SERVICES" | grep -qx "llama" ;;
+        *)        return 1 ;;
+    esac
+}
+
+# The five llama variants all define the same `llama` service, so uncommenting
+# two does not run two models: Compose merges them into one service with a
+# mixture of images and device mappings, and the last include quietly wins. That
+# is unfixable from inside the compose files, so refuse to start instead of
+# reporting a cheerful "Add-on enabled" for a stack nobody can reason about.
+ACTIVE_LLAMA_INCLUDES=$(grep -cE \
+    "^[[:space:]]*-[[:space:]]*path:[[:space:]]*docker/options/llama-[a-z]+\.yml" \
+    docker-compose.yml 2>/dev/null || true)
+if [ "${ACTIVE_LLAMA_INCLUDES:-0}" -gt 1 ]; then
+    echo -e "${RED}Error: ${ACTIVE_LLAMA_INCLUDES} llama add-ons are enabled at once${NC}"
+    echo "All five define the same 'llama' service, so enabling more than one merges"
+    echo "incompatible images and device mappings into a single container."
+    echo ""
+    echo "Currently uncommented in docker-compose.yml:"
+    grep -E "^[[:space:]]*-[[:space:]]*path:[[:space:]]*docker/options/llama-[a-z]+\.yml" \
+        docker-compose.yml | grep -oE "llama-[a-z]+\.yml" | sed 's/^/  - /'
+    echo ""
+    echo "Comment out all but the one matching your hardware, then run this again."
+    echo ""
+    exit 1
+fi
+
+# Read one key's value out of a .env-style file WITHOUT sourcing it: a scoped
+# file must never leak its values into this script's own environment, which is
+# the bug that made an earlier version of the AssemblyAI check wrong. Commented
+# lines are ignored, the last assignment wins (matching dotenv), surrounding
+# whitespace is trimmed and one layer of matching quotes is stripped.
+scoped_env_value() {
+    local file="$1" key="$2" line value
+    line=$(grep -E "^[[:space:]]*${key}[[:space:]]*=" "$file" 2>/dev/null | tail -n 1)
+    [ -n "$line" ] || return 0
+
+    value=${line#*=}
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    case "$value" in
+        \"*\") value=${value#\"}; value=${value%\"} ;;
+        \'*\') value=${value#\'}; value=${value%\'} ;;
+    esac
+    printf '%s' "$value"
+}
+
+# Print why $2 does not actually enable the $1 add-on, and return 1; print
+# nothing and return 0 when it does. Existing is not the same as configured — a
+# file with the key missing, commented out, misspelled or blank leaves the
+# service running on a default that silently undoes the add-on. One required
+# key per add-on, deliberately: this is a sanity check, not a schema.
+scoped_env_problem() {
+    local option="$1" file="$2" value
+    case "$option" in
+        vaapi)
+            value=$(scoped_env_value "$file" VIDEO_ENCODER)
+            if [ "$value" != "vaapi" ]; then
+                printf 'VIDEO_ENCODER must be "vaapi" (found: %s). Without it the GPU is mapped\ninto the containers and never used, and every clip still renders on the CPU.' \
+                    "${value:-no value}"
+                return 1
+            fi
+            ;;
+        whisperx)
+            value=$(scoped_env_value "$file" TRANSCRIPTION_PROVIDER)
+            if [ "$value" != "whisperx" ]; then
+                printf 'TRANSCRIPTION_PROVIDER must be "whisperx" (found: %s). Transcription falls\nback to AssemblyAI, which needs ASSEMBLY_AI_API_KEY.' \
+                    "${value:-no value}"
+                return 1
+            fi
+            # A blank URL is treated as broken rather than as the deliberate
+            # bare-metal in-process choice: this script only ever starts the
+            # Docker stack, and the backend image ships without the whisperx
+            # extra, so the in-process path cannot run there at all.
+            value=$(scoped_env_value "$file" WHISPERX_API_URL)
+            if [ -z "$value" ]; then
+                printf 'WHISPERX_API_URL is empty. In Docker that selects the in-process WhisperX\npath, which the backend image cannot run. Set it to http://whisperx:9000.'
+                return 1
+            fi
+            ;;
+        tunnel)
+            value=$(scoped_env_value "$file" TUNNEL_TOKEN)
+            if [ -z "$value" ]; then
+                printf 'TUNNEL_TOKEN is empty. cloudflared starts, fails to authenticate, and\nrestarts forever without ever publishing the app.'
+                return 1
+            fi
+            ;;
+        llama)
+            value=$(scoped_env_value "$file" LLAMA_ARG_MODEL)
+            if [ -z "$value" ]; then
+                printf 'LLAMA_ARG_MODEL is empty. llama-server has no model to load and exits on\nstartup, so transcript analysis has no endpoint to call.'
+                return 1
+            fi
+            ;;
+    esac
+    return 0
+}
+
+TUNNEL_ENABLED=0
+# Whether transcription actually runs on WhisperX, which takes both halves of
+# the add-on: the include supplies the service and the env_file wiring, and
+# .env.whisperx supplies TRANSCRIPTION_PROVIDER. Neither a stray .env.whisperx
+# nor a legacy TRANSCRIPTION_PROVIDER in the root .env reaches the containers,
+# so neither may excuse a missing AssemblyAI key below.
+WHISPERX_ACTIVE=0
+for option in vaapi whisperx tunnel llama; do
+    scoped_env=".env.${option}"
+    if option_is_enabled "$option"; then
+        [ "$option" = "tunnel" ] && TUNNEL_ENABLED=1
+        if [ -f "$scoped_env" ]; then
+            if scoped_env_issue=$(scoped_env_problem "$option" "$scoped_env"); then
+                [ "$option" = "whisperx" ] && WHISPERX_ACTIVE=1
+                echo -e "${GREEN}Add-on enabled: ${option} (${scoped_env})${NC}"
+            else
+                echo -e "${YELLOW}Warning: the ${option} add-on is enabled but ${scoped_env} does not configure it${NC}"
+                echo "$scoped_env_issue"
+                echo "Compare your file with ${scoped_env}.example."
+                echo ""
+            fi
+        else
+            echo -e "${YELLOW}Warning: the ${option} add-on is enabled but ${scoped_env} is missing${NC}"
+            echo "It holds that add-on's entire configuration, so without it the service starts"
+            echo "unconfigured. Create it with:"
+            echo "  cp ${scoped_env}.example ${scoped_env}"
+            echo ""
+        fi
+    elif [ -f "$scoped_env" ]; then
+        echo -e "${YELLOW}Warning: ${scoped_env} exists but the ${option} add-on is not enabled${NC}"
+        echo "Uncomment its include line at the top of docker-compose.yml (along with the"
+        echo "'include:' line above it), or delete ${scoped_env} if you no longer want it:"
+        if [ "$option" = "llama" ]; then
+            # There is no llama.yml: five hardware variants share one .env.llama.
+            echo "  - path: docker/options/llama-<variant>.yml"
+            echo "Uncomment exactly ONE variant for your hardware: llama-cpu.yml, llama-cuda.yml,"
+            echo "llama-rocm.yml, llama-sycl.yml or llama-vulkan.yml (all five define the same"
+            echo "llama service; see docs/setup.md)."
+        else
+            echo "  - path: docker/options/${option}.yml"
+        fi
+        echo ""
+    fi
+done
+
+# ── Configuration warnings ────────────────────────────────────────
+# These run after add-on detection because some of them depend on it: whether a
+# key is required is a question about the stack that is actually configured, not
+# about what happens to be sitting in a file.
+
 if [ -n "${LLM:-}" ]; then
     case "$LLM" in
         google:*|google-gla:*|openai:*|anthropic:*|ollama:*)
@@ -196,11 +429,18 @@ if [ -n "${LLM:-}" ]; then
     esac
 fi
 
-# Local WhisperX transcription does not need an AssemblyAI key.
-if [ -z "$ASSEMBLY_AI_API_KEY" ] && [ "${TRANSCRIPTION_PROVIDER:-assemblyai}" != "whisperx" ]; then
+# Only a running WhisperX add-on removes the need for an AssemblyAI key, and
+# that takes the include and .env.whisperx together (WHISPERX_ACTIVE above).
+# Deciding this from a sourced TRANSCRIPTION_PROVIDER instead would clear the
+# warning for two configurations that transcribe on AssemblyAI regardless: a
+# leftover .env.whisperx with the include commented out, and a legacy
+# TRANSCRIPTION_PROVIDER=whisperx in the root .env, which the compose template
+# stopped passing through when the add-on settings were scoped.
+if [ -z "$ASSEMBLY_AI_API_KEY" ] && [ "$WHISPERX_ACTIVE" -eq 0 ]; then
     echo -e "${YELLOW}Warning: ASSEMBLY_AI_API_KEY is not set in .env${NC}"
-    echo "Video transcription will not work without this key"
-    echo "(or set TRANSCRIPTION_PROVIDER=whisperx for local transcription)."
+    echo "Video transcription will not work without this key. To transcribe locally"
+    echo "instead, enable the whisperx add-on: uncomment docker/options/whisperx.yml"
+    echo "in docker-compose.yml and run 'cp .env.whisperx.example .env.whisperx'."
     echo ""
 fi
 
@@ -231,51 +471,10 @@ if [ -z "$OPENAI_API_KEY" ] && [ -z "$GOOGLE_API_KEY" ] && [ -z "$ANTHROPIC_API_
     fi
 fi
 
-# Check if Docker is running
-if ! docker info > /dev/null 2>&1; then
-    echo -e "${RED}Error: Docker is not running!${NC}"
-    echo "Please start Docker Desktop and try again."
-    echo ""
-    exit 1
-fi
-
-# Determine which Docker Compose command to use.
-if docker compose version &> /dev/null; then
-    DOCKER_COMPOSE="docker compose"
-elif command -v docker-compose &> /dev/null; then
-    DOCKER_COMPOSE="docker-compose"
-else
-    echo -e "${RED}Error: Docker Compose is not installed!${NC}"
-    echo "Please install the Docker Compose plugin and try again."
-    echo ""
-    exit 1
-fi
-
-# docker-compose.yml needs Compose v2.20+ (profiles with per-dependency
-# `required: false`), which older v2 releases and the legacy v1 binary
-# cannot parse. Non-numeric version output is treated as too old.
-COMPOSE_VERSION=$($DOCKER_COMPOSE version --short 2>/dev/null || true)
-COMPOSE_VERSION=${COMPOSE_VERSION#v}
-COMPOSE_MAJOR=$(echo "$COMPOSE_VERSION" | cut -d. -f1)
-COMPOSE_MINOR=$(echo "$COMPOSE_VERSION" | cut -d. -f2)
-case "$COMPOSE_MAJOR" in ''|*[!0-9]*) COMPOSE_MAJOR=0 ;; esac
-case "$COMPOSE_MINOR" in ''|*[!0-9]*) COMPOSE_MINOR=0 ;; esac
-if [ "$COMPOSE_MAJOR" -lt 2 ] || { [ "$COMPOSE_MAJOR" -eq 2 ] && [ "$COMPOSE_MINOR" -lt 20 ]; }; then
-    echo -e "${RED}Error: Docker Compose v2.20 or newer is required (found ${COMPOSE_VERSION:-unknown})!${NC}"
-    echo "Update Docker Desktop or the Docker Compose plugin and try again."
-    echo ""
-    exit 1
-fi
-
-# Enable the Cloudflare Tunnel ingress profile when a token is configured.
-# COMPOSE_PROFILES keeps every compose invocation below (up/ps) profile-aware
-# and works with both `docker compose` and `docker-compose`.
-if [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
-    export COMPOSE_PROFILES="tunnel${COMPOSE_PROFILES:+,$COMPOSE_PROFILES}"
-    echo -e "${GREEN}Cloudflare Tunnel enabled (compose profile: tunnel)${NC}"
+if [ "$TUNNEL_ENABLED" -eq 1 ]; then
     if [[ "${NEXT_PUBLIC_APP_URL:-}" != https://* ]] || [[ "${NEXT_PUBLIC_API_URL:-}" != https://* ]] \
         || [[ "${BETTER_AUTH_URL:-}" != https://* ]]; then
-        echo -e "${YELLOW}Warning: CLOUDFLARE_TUNNEL_TOKEN is set but NEXT_PUBLIC_APP_URL / NEXT_PUBLIC_API_URL / BETTER_AUTH_URL are not https:// URLs${NC}"
+        echo -e "${YELLOW}Warning: the tunnel add-on is enabled but NEXT_PUBLIC_APP_URL / NEXT_PUBLIC_API_URL / BETTER_AUTH_URL are not https:// URLs${NC}"
         echo "Public sign-in and uploads will fail until NEXT_PUBLIC_APP_URL, NEXT_PUBLIC_API_URL,"
         echo "BETTER_AUTH_URL and CORS_ORIGINS point at your tunnel hostnames (see .env.example)."
     fi
@@ -326,7 +525,7 @@ echo "Services will be available at:"
 echo "  - Frontend:  http://localhost:3001"
 echo "  - Backend:   http://localhost:8000"
 echo "  - API Docs:  http://localhost:8000/docs"
-if [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
+if [ "${TUNNEL_ENABLED:-0}" -eq 1 ]; then
     echo "  - Public:    ${NEXT_PUBLIC_APP_URL:-<set NEXT_PUBLIC_APP_URL>} (via Cloudflare Tunnel)"
 fi
 echo ""
@@ -335,9 +534,6 @@ echo "  $DOCKER_COMPOSE logs -f"
 echo ""
 echo "To stop all services, run:"
 echo "  $DOCKER_COMPOSE down"
-if [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
-    echo "  (tunnel enabled: use '$DOCKER_COMPOSE --profile tunnel down' to also stop cloudflared)"
-fi
 echo ""
 echo "Waiting for services to be healthy..."
 
@@ -352,9 +548,6 @@ if $DOCKER_COMPOSE ps | grep -q "Up"; then
     echo "  1. Open http://localhost:3001 in your browser"
     echo "  2. View logs: $DOCKER_COMPOSE logs -f"
     echo "  3. Stop services: $DOCKER_COMPOSE down"
-    if [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
-        echo "     (tunnel enabled: use '$DOCKER_COMPOSE --profile tunnel down' to also stop cloudflared)"
-    fi
 else
     echo -e "${YELLOW}Services are starting... Check logs if you encounter issues:${NC}"
     echo "  $DOCKER_COMPOSE logs -f"

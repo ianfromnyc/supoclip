@@ -4,7 +4,10 @@ Run SupoClip with Docker in just one command!
 
 ## Prerequisites
 
-1. **Docker Desktop** installed and running
+1. **Docker Desktop** installed and running, with **Compose v5.0.0 or newer**
+   (`docker compose version`). The optional add-ons merge into services the base
+   stack already defines, and older Compose rejects that with
+   `conflicts with imported resource` rather than merging.
 2. **API Keys** (get these from the providers):
    - [AssemblyAI API Key](https://www.assemblyai.com/) (required for transcription)
    - At least one AI provider:
@@ -21,15 +24,28 @@ Run SupoClip with Docker in just one command!
 
 That's it! The script will:
 - Check prerequisites
+- Create your `docker-compose.yml` from `docker-compose.yml.example` if you do
+  not have one yet
 - Build Docker images
 - Start all services
 - Show you where to access the app
+
+Prefer running `docker compose` yourself? Make the copy first — the repo does
+not ship a live compose file:
+
+```bash
+cp docker-compose.yml.example docker-compose.yml
+```
+
+It is git-ignored, so it is yours to edit and survives every `git pull`.
 
 ## First Time Setup
 
 ### 1. Configure Environment Variables
 
-Edit the `.env` file in the project root and add your API keys:
+Copy the template if you do not have a `.env` yet — `./start.sh` checks for it
+but does not create it (`cp .env.example .env`). Then edit `.env` in the
+project root and add your API keys:
 
 ```bash
 # Required for video transcription
@@ -92,6 +108,27 @@ docker-compose down
 # Rebuild after code changes
 docker-compose up -d --build
 ```
+
+## Optional Add-ons
+
+GPU video encoding, local transcription, a local LLM, and Cloudflare Tunnel
+ingress each live in their own file under `docker/options/`. Turning one on
+takes two steps:
+
+```bash
+# 1. Uncomment its line — and the `include:` line above it — at the top of
+#    docker-compose.yml, then:
+cp .env.whisperx.example .env.whisperx   # or .env.vaapi / .env.tunnel / .env.llama
+docker-compose up -d
+```
+
+Each add-on's settings live entirely in its own `.env.<option>`, so the file is
+short enough to read in full. To turn an add-on off, comment its include line
+back out and run `docker-compose up -d --remove-orphans`, then delete the
+`.env.<option>`. Deleting the file alone never stops the service — for the
+tunnel, a running `cloudflared` keeps its token and keeps publishing the app.
+`./start.sh` warns if you do one step without the other. See
+[docs/setup.md](docs/setup.md#optional-add-ons).
 
 ## Environment Configuration
 
@@ -254,8 +291,9 @@ For production use:
    `NODE_ENV=production` (Compose otherwise ships a Next.js dev server)
 3. Use strong database passwords
 4. Enable HTTPS with a reverse proxy (nginx/Caddy) or Cloudflare Tunnel
-   - For the tunnel, set `CLOUDFLARE_TUNNEL_TOKEN` in `.env` and follow
-     "Public access with Cloudflare Tunnel" in `docs/setup.md`
+   - For the tunnel, enable the `tunnel.yml` add-on and put your connector
+     token in `.env.tunnel` as `TUNNEL_TOKEN`; follow "Public access with
+     Cloudflare Tunnel" in `docs/setup.md`
 5. Leave sign-ups closed (the default) unless you want anyone to register
 6. Set up persistent volumes for data
 7. Configure backup strategies

@@ -51,8 +51,8 @@ SupoClip provides the same core functionality with more control:
 
 ### Prerequisites
 
-- Docker and Docker Compose
-- An AssemblyAI API key (for transcription) - [Get one here](https://www.assemblyai.com/) — or set `TRANSCRIPTION_PROVIDER=whisperx` for fully local transcription (no key needed; install the backend's `whisperx` extra)
+- Docker, with **Docker Compose v5.0.0 or newer** — the optional add-ons merge into services the base stack defines, and older Compose refuses that with `conflicts with imported resource` instead of merging
+- An AssemblyAI API key (for transcription) - [Get one here](https://www.assemblyai.com/) — or set `TRANSCRIPTION_PROVIDER=whisperx` and enable the `whisperx` add-on for fully local transcription, no key needed
 - An LLM provider for AI analysis - OpenAI, Google, Anthropic, or Ollama
 
 ### 1. Clone and Configure
@@ -60,15 +60,17 @@ SupoClip provides the same core functionality with more control:
 ```bash
 git clone https://github.com/FujiwaraChoki/supoclip.git
 cd supoclip
+cp docker-compose.yml.example docker-compose.yml
 ```
+
+Both `docker-compose.yml` and `.env` are yours to edit and stay untracked, so
+your setup survives every `git pull`. (`./start.sh` creates only the
+`docker-compose.yml` copy for you if it is missing; `.env` you must copy
+yourself with `cp .env.example .env`, or `./start.sh` refuses to start.)
 
 Create a `.env` file in the root directory:
 
 ```env
-# Required for Docker: selects the backend/worker variant (see the VAAPI
-# section in .env.example; leave the value as-is)
-COMPOSE_PROFILES=cpu-false,vaapi-true
-
 # Required: Video transcription (not needed with TRANSCRIPTION_PROVIDER=whisperx)
 ASSEMBLY_AI_API_KEY=your_assemblyai_api_key
 
@@ -136,6 +138,31 @@ This starts (all published ports are bound to `127.0.0.1`):
 - **Redis**: localhost:6379
 - **PostgreSQL**: not published; reachable only from the other containers
 
+### Optional add-ons
+
+Extra services live in `docker/options/` and are off by default. Each one is two
+steps — uncomment its line (and the `include:` line above it) at the top of your
+`docker-compose.yml`, then copy its settings file — followed by
+`docker compose up -d`:
+
+| Add-on | What it does | Its settings |
+|--------|--------------|--------------|
+| `vaapi.yml` | Intel/AMD GPU video encoding | `cp .env.vaapi.example .env.vaapi` |
+| `whisperx.yml` | Local transcription, no AssemblyAI account | `cp .env.whisperx.example .env.whisperx` |
+| `tunnel.yml` | Public ingress via Cloudflare Tunnel | `cp .env.tunnel.example .env.tunnel` |
+| `llama-*.yml` | Local LLM via llama.cpp — uncomment exactly ONE variant matching your hardware | `cp .env.llama.example .env.llama`, plus `LLM=openai:local` and `OPENAI_BASE_URL=http://llama:8080/v1` in `.env` |
+
+Every `.env.<option>` is git-ignored and holds only that add-on's configuration,
+so it is short enough to read in full. To turn an add-on off, comment its
+include line back out and run `docker compose up -d --remove-orphans` — deleting
+the settings file alone never stops the service, because Docker reads it only
+when it creates a container. For `tunnel.yml` that matters: a running
+`cloudflared` keeps its token and keeps publishing the app. Delete the
+`.env.<option>` afterwards; `./start.sh` warns if an add-on is enabled without
+its file, or vice versa.
+
+Details in [docs/setup.md](docs/setup.md).
+
 ### 3. Wait for Initialization
 
 First-time startup takes a few minutes. Check progress with:
@@ -170,15 +197,41 @@ If you enable DataFast, also verify that:
 
 **Videos stay queued / never process:**
 - Check worker logs: `docker-compose logs -f worker`
-  (with `VAAPI_ENABLED=true` the service is named `worker-vaapi` instead)
 - Ensure Redis is healthy: `docker-compose logs redis`
 - Verify API keys are correct
 
-**No backend/worker starts, or `config-guard` exits with an error:**
-- `.env` must contain `COMPOSE_PROFILES=cpu-false,vaapi-true` and
-  `VAAPI_ENABLED` must be exactly `true` or `false` (see `.env.example`)
-- After changing `VAAPI_ENABLED`, recreate the stack:
-  `docker compose down --remove-orphans && docker compose up -d`
+**`docker compose` says no configuration file was found:**
+- Make your own copy first: `cp docker-compose.yml.example docker-compose.yml`
+  (or just run `./start.sh`, which does it for you)
+
+**An add-on you enabled is not running, or is running unconfigured:**
+- Both the `include:` line and the add-on's own line must be uncommented in
+  `docker-compose.yml`; check with `docker compose config --services`
+- Its `.env.<option>` must exist too — `cp .env.<option>.example .env.<option>`.
+  Missing scoped files are skipped silently by design, so the service comes up
+  with no configuration at all
+- A typo in an include path fails the parse outright — Compose has no way to
+  skip a missing file
+
+**A setting in `.env` seems to be ignored:**
+- Add-on settings moved into `.env.<option>` files, and the compose file no
+  longer passes the old names through. That covers `VIDEO_ENCODER`,
+  `VAAPI_DEVICE`, `TRANSCRIPTION_PROVIDER`, every `WHISPERX_*`, `HF_TOKEN`, and
+  `CLOUDFLARE_TUNNEL_TOKEN`
+- The reverse also holds: `LLM` and `OPENAI_BASE_URL` must be in `.env`, not
+  `.env.llama`, because `environment:` entries outrank any env file
+
+**Upgrading from the old profile-based setup:**
+- `cp docker-compose.yml.example docker-compose.yml` **first** — pulling this
+  change deleted the tracked compose file, so until you copy it Compose has no
+  configuration and every command below fails
+- Delete `COMPOSE_PROFILES` and `VAAPI_ENABLED` from `.env` — both are gone
+- Run `docker compose down --remove-orphans` once, to clear the old
+  `backend-vaapi`/`worker-vaapi`/`config-guard` containers (they share the
+  project label, so the new template still finds and removes them)
+- Re-enable what you used by uncommenting its include
+- Move each add-on's settings out of `.env` and into its `.env.<option>` (see
+  the list above), copying the matching `.example` as a starting point
 
 **YouTube titles or duration lookup is failing:**
 - `YOUTUBE_METADATA_PROVIDER=yt_dlp` keeps the old metadata path

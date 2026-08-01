@@ -114,7 +114,8 @@ Current top-level layout:
 
 - `backend/`
 - `frontend/`
-- `docker-compose.yml`
+- `docker/` (Dockerfiles and the optional compose overlays in `docker/options/`)
+- `docker-compose.yml.example` (copied to an untracked `docker-compose.yml`)
 - `init.sql`
 - `.env.example`
 - `start.sh`

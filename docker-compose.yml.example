@@ -1,0 +1,382 @@
+# SupoClip — Docker Compose stack
+#
+# This file is a TEMPLATE. Copy it once and edit your copy:
+#
+#   cp docker-compose.yml.example docker-compose.yml
+#
+# docker-compose.yml is git-ignored, so your edits survive every `git pull`.
+# ./start.sh makes the copy for you when it is missing.
+
+# ── Optional add-ons ─────────────────────────────────────────────
+# Enabling one takes two steps: uncomment its include line below (and the
+# `include:` line itself), then copy its settings file —
+# `cp .env.<option>.example .env.<option>` — and edit that. Then
+# `docker compose up -d`.
+#
+# For llama.cpp, uncomment EXACTLY ONE variant matching your hardware; all five
+# define the same `llama` service and share one .env.llama.
+# Details: docs/setup.md
+# include:
+#   - path: docker/options/vaapi.yml        # Intel/AMD GPU video encoding    -> .env.vaapi
+#   - path: docker/options/whisperx.yml     # local transcription             -> .env.whisperx
+#   - path: docker/options/tunnel.yml       # Cloudflare Tunnel ingress       -> .env.tunnel
+#   - path: docker/options/llama-cpu.yml    # local LLM, CPU only             -> .env.llama
+#   - path: docker/options/llama-cuda.yml   # local LLM, NVIDIA GPU           -> .env.llama
+#   - path: docker/options/llama-rocm.yml   # local LLM, AMD GPU              -> .env.llama
+#   - path: docker/options/llama-sycl.yml   # local LLM, Intel GPU (SYCL)     -> .env.llama
+#   - path: docker/options/llama-vulkan.yml # local LLM, generic Vulkan GPU   -> .env.llama
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      # Dockerfiles live under docker/; the path is resolved relative to the
+      # build context above, hence the leading `../`.
+      dockerfile: ../docker/frontend.Dockerfile
+      target: ${FRONTEND_BUILD_TARGET:-development}
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:3001}
+        - NEXT_PUBLIC_SELF_HOST=${SELF_HOST:-true}
+        - NEXT_PUBLIC_PRO_PRICE_MONTHLY=${NEXT_PUBLIC_PRO_PRICE_MONTHLY:-10}
+        - NEXT_PUBLIC_SCALE_PRICE_MONTHLY=${NEXT_PUBLIC_SCALE_PRICE_MONTHLY:-50}
+        - NEXT_PUBLIC_FREE_PLAN_TASK_LIMIT=${NEXT_PUBLIC_FREE_PLAN_TASK_LIMIT:-10}
+        - NEXT_PUBLIC_PRO_PLAN_TASK_LIMIT=${NEXT_PUBLIC_PRO_PLAN_TASK_LIMIT:-50}
+        - NEXT_PUBLIC_SCALE_PLAN_TASK_LIMIT=${NEXT_PUBLIC_SCALE_PLAN_TASK_LIMIT:-300}
+        - NEXT_PUBLIC_DATAFAST_WEBSITE_ID=${NEXT_PUBLIC_DATAFAST_WEBSITE_ID:-}
+        - NEXT_PUBLIC_DATAFAST_DOMAIN=${NEXT_PUBLIC_DATAFAST_DOMAIN:-}
+        - NEXT_PUBLIC_DATAFAST_ALLOW_LOCALHOST=${NEXT_PUBLIC_DATAFAST_ALLOW_LOCALHOST:-false}
+    container_name: supoclip-frontend
+    ports:
+      - "127.0.0.1:3001:3107"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/prisma:/app/prisma
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - NEXT_TELEMETRY_DISABLED=1
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      - BACKEND_INTERNAL_URL=http://backend:8000
+      - NEXT_PUBLIC_SELF_HOST=${SELF_HOST:-true}
+      - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:3001}
+      - NEXT_PUBLIC_LANDING_ONLY_MODE=${NEXT_PUBLIC_LANDING_ONLY_MODE:-false}
+      # Sign-ups are closed unless explicitly opened, so a publicly exposed
+      # deployment does not accept strangers by default.
+      - DISABLE_SIGN_UP=${DISABLE_SIGN_UP:-true}
+      - BACKEND_AUTH_SECRET=${BACKEND_AUTH_SECRET}
+      - APP_SETTINGS_ENCRYPTION_KEY=${APP_SETTINGS_ENCRYPTION_KEY}
+      - DATABASE_URL=postgresql://supoclip:supoclip_password@postgres:5432/supoclip
+      - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:-supoclip_dev_secret_change_in_production}
+      - BETTER_AUTH_URL=${BETTER_AUTH_URL:-http://localhost:3001}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+      - STRIPE_PRICE_ID=${STRIPE_PRICE_ID}
+      - STRIPE_PRO_PRICE_ID=${STRIPE_PRO_PRICE_ID}
+      - STRIPE_SCALE_PRICE_ID=${STRIPE_SCALE_PRICE_ID}
+      - NEXT_PUBLIC_PRO_PRICE_MONTHLY=${NEXT_PUBLIC_PRO_PRICE_MONTHLY:-10}
+      - NEXT_PUBLIC_SCALE_PRICE_MONTHLY=${NEXT_PUBLIC_SCALE_PRICE_MONTHLY:-50}
+      - NEXT_PUBLIC_FREE_PLAN_TASK_LIMIT=${NEXT_PUBLIC_FREE_PLAN_TASK_LIMIT:-10}
+      - NEXT_PUBLIC_PRO_PLAN_TASK_LIMIT=${NEXT_PUBLIC_PRO_PLAN_TASK_LIMIT:-50}
+      - NEXT_PUBLIC_SCALE_PLAN_TASK_LIMIT=${NEXT_PUBLIC_SCALE_PLAN_TASK_LIMIT:-300}
+      - NEXT_PUBLIC_DATAFAST_WEBSITE_ID=${NEXT_PUBLIC_DATAFAST_WEBSITE_ID:-}
+      - NEXT_PUBLIC_DATAFAST_DOMAIN=${NEXT_PUBLIC_DATAFAST_DOMAIN:-}
+      - NEXT_PUBLIC_DATAFAST_ALLOW_LOCALHOST=${NEXT_PUBLIC_DATAFAST_ALLOW_LOCALHOST:-false}
+      - STRIPE_CHECKOUT_URL=${STRIPE_CHECKOUT_URL}
+      - STRIPE_CUSTOMER_PORTAL_URL=${STRIPE_CUSTOMER_PORTAL_URL}
+      - REVENUECAT_WEBHOOK_AUTH_HEADER=${REVENUECAT_WEBHOOK_AUTH_HEADER}
+      - REVENUECAT_PRO_PRODUCT_IDS=${REVENUECAT_PRO_PRODUCT_IDS}
+      - REVENUECAT_SCALE_PRODUCT_IDS=${REVENUECAT_SCALE_PRODUCT_IDS}
+      - AWS_REGION=${AWS_REGION}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - "SES_FROM_EMAIL=${SES_FROM_EMAIL:-SupoClip <onboarding@example.com>}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      # Exercise Better Auth and Prisma, not only the static landing page.
+      test: ["CMD", "curl", "-f", "http://localhost:3107/api/auth/get-session"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: ../docker/backend.Dockerfile
+    container_name: supoclip-backend
+    platform: linux/amd64
+    command: [".venv/bin/uvicorn", "src.main_refactored:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./backend/src:/app/src
+      - uploads:/app/uploads
+      - clips:/app/clips
+      - ./backend/fonts:/app/fonts
+      - ./backend/transitions:/app/transitions
+    # No env_file here on purpose. Each add-on's overlay attaches its own
+    # .env.<option> to this service, so commenting the include out really does
+    # disable the add-on. Attaching them here instead would read the file
+    # whether or not the include was active, leaving this container configured
+    # for a service that is not running.
+    #
+    # Whatever an overlay contributes, it MUST NOT also appear under
+    # `environment:` below: `environment:` always wins, even when it
+    # interpolates to an empty string, which would silently shadow the file.
+    # The defaults in config.py cover the add-on-disabled case.
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=postgresql+asyncpg://supoclip:supoclip_password@postgres:5432/supoclip
+      - TEMP_DIR=/app/uploads
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - ASSEMBLY_AI_API_KEY=${ASSEMBLY_AI_API_KEY}
+      - ASSEMBLY_AI_HTTP_TIMEOUT_SECONDS=${ASSEMBLY_AI_HTTP_TIMEOUT_SECONDS:-900}
+      - APIFY_API_TOKEN=${APIFY_API_TOKEN}
+      - APIFY_YOUTUBE_DOWNLOADER_ACTOR=${APIFY_YOUTUBE_DOWNLOADER_ACTOR:-epctex/youtube-video-downloader}
+      - APIFY_YOUTUBE_DEFAULT_QUALITY=${APIFY_YOUTUBE_DEFAULT_QUALITY:-1080}
+      - APIFY_RUN_TIMEOUT_SECONDS=${APIFY_RUN_TIMEOUT_SECONDS:-900}
+      - YOUTUBE_DATA_API_KEY=${YOUTUBE_DATA_API_KEY}
+      - YOUTUBE_METADATA_PROVIDER=${YOUTUBE_METADATA_PROVIDER:-yt_dlp}
+      - YOUTUBE_DOWNLOAD_PROVIDER=${YOUTUBE_DOWNLOAD_PROVIDER:-yt_dlp}
+      # LLM config stays in the root .env because it is core, not add-on
+      # specific — every provider uses it. That also means it cannot be moved
+      # into .env.llama: these lines outrank any env_file, so a value here
+      # would shadow one there. llama.cpp users set LLM=openai:local and
+      # OPENAI_BASE_URL=http://llama:8080/v1 in .env, and put the *server's*
+      # own configuration (LLAMA_ARG_*) in .env.llama.
+      - LLM=${LLM:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - OPENAI_SERVICE_TIER=${OPENAI_SERVICE_TIER:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      # The endpoint and key for the deprecated LLM=ollama:* prefix, which
+      # reads only this pair — OPENAI_BASE_URL never applies to it, so the
+      # default above cannot redirect an existing ollama:* deployment.
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
+      - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
+      - QUEUED_TASK_TIMEOUT_SECONDS=${QUEUED_TASK_TIMEOUT_SECONDS:-180}
+      # Concurrent worker jobs; lower when local GPU transcription/encoding
+      # shares one card with the jobs.
+      - WORKER_MAX_JOBS=${WORKER_MAX_JOBS:-4}
+      - DEFAULT_PROCESSING_MODE=${DEFAULT_PROCESSING_MODE:-fast}
+      - FAST_MODE_MAX_CLIPS=${FAST_MODE_MAX_CLIPS:-4}
+      - FAST_MODE_TRANSCRIPT_MODEL=${FAST_MODE_TRANSCRIPT_MODEL:-universal}
+      - SELF_HOST=${SELF_HOST:-true}
+      - BACKEND_AUTH_SECRET=${BACKEND_AUTH_SECRET}
+      - APP_SETTINGS_ENCRYPTION_KEY=${APP_SETTINGS_ENCRYPTION_KEY}
+      - AUTH_SIGNATURE_TTL_SECONDS=${AUTH_SIGNATURE_TTL_SECONDS:-300}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3001,http://127.0.0.1:3001,http://localhost:3107,http://sp.localhost:3107,http://supoclip.localhost:3107}
+      - FREE_PLAN_TASK_LIMIT=${FREE_PLAN_TASK_LIMIT:-10}
+      - PRO_PLAN_TASK_LIMIT=${PRO_PLAN_TASK_LIMIT:-50}
+      - SCALE_PLAN_TASK_LIMIT=${SCALE_PLAN_TASK_LIMIT:-300}
+      - AWS_REGION=${AWS_REGION}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - "SES_FROM_EMAIL=${SES_FROM_EMAIL:-SupoClip <onboarding@example.com>}"
+      - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:3001}
+      - DISCORD_FEEDBACK_WEBHOOK_URL=${DISCORD_FEEDBACK_WEBHOOK_URL}
+      - DISCORD_SALES_WEBHOOK_URL=${DISCORD_SALES_WEBHOOK_URL}
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # Background video processing. Shares the backend image and most of its
+  # configuration, but runs the ARQ worker instead of the API server.
+  worker:
+    build:
+      context: ./backend
+      dockerfile: ../docker/backend.Dockerfile
+    container_name: supoclip-worker
+    platform: linux/amd64
+    command: [".venv/bin/arq", "src.workers.tasks.WorkerSettings"]
+    volumes:
+      - ./backend/src:/app/src
+      - uploads:/app/uploads
+      - clips:/app/clips
+      - ./backend/fonts:/app/fonts
+      - ./backend/transitions:/app/transitions
+    # No env_file here on purpose. Each add-on's overlay attaches its own
+    # .env.<option> to this service, so commenting the include out really does
+    # disable the add-on. Attaching them here instead would read the file
+    # whether or not the include was active, leaving this container configured
+    # for a service that is not running.
+    #
+    # Whatever an overlay contributes, it MUST NOT also appear under
+    # `environment:` below: `environment:` always wins, even when it
+    # interpolates to an empty string, which would silently shadow the file.
+    # The defaults in config.py cover the add-on-disabled case.
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=postgresql+asyncpg://supoclip:supoclip_password@postgres:5432/supoclip
+      - TEMP_DIR=/app/uploads
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - ASSEMBLY_AI_API_KEY=${ASSEMBLY_AI_API_KEY}
+      - ASSEMBLY_AI_HTTP_TIMEOUT_SECONDS=${ASSEMBLY_AI_HTTP_TIMEOUT_SECONDS:-900}
+      - APIFY_API_TOKEN=${APIFY_API_TOKEN}
+      - APIFY_YOUTUBE_DOWNLOADER_ACTOR=${APIFY_YOUTUBE_DOWNLOADER_ACTOR:-epctex/youtube-video-downloader}
+      - APIFY_YOUTUBE_DEFAULT_QUALITY=${APIFY_YOUTUBE_DEFAULT_QUALITY:-1080}
+      - APIFY_RUN_TIMEOUT_SECONDS=${APIFY_RUN_TIMEOUT_SECONDS:-900}
+      - YOUTUBE_DATA_API_KEY=${YOUTUBE_DATA_API_KEY}
+      - YOUTUBE_METADATA_PROVIDER=${YOUTUBE_METADATA_PROVIDER:-yt_dlp}
+      - YOUTUBE_DOWNLOAD_PROVIDER=${YOUTUBE_DOWNLOAD_PROVIDER:-yt_dlp}
+      # LLM config stays in the root .env because it is core, not add-on
+      # specific — every provider uses it. That also means it cannot be moved
+      # into .env.llama: these lines outrank any env_file, so a value here
+      # would shadow one there. llama.cpp users set LLM=openai:local and
+      # OPENAI_BASE_URL=http://llama:8080/v1 in .env, and put the *server's*
+      # own configuration (LLAMA_ARG_*) in .env.llama.
+      - LLM=${LLM:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - OPENAI_SERVICE_TIER=${OPENAI_SERVICE_TIER:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      # The endpoint and key for the deprecated LLM=ollama:* prefix, which
+      # reads only this pair — OPENAI_BASE_URL never applies to it, so the
+      # default above cannot redirect an existing ollama:* deployment.
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
+      - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
+      - QUEUED_TASK_TIMEOUT_SECONDS=${QUEUED_TASK_TIMEOUT_SECONDS:-180}
+      # Concurrent worker jobs; lower when local GPU transcription/encoding
+      # shares one card with the jobs.
+      - WORKER_MAX_JOBS=${WORKER_MAX_JOBS:-4}
+      - DEFAULT_PROCESSING_MODE=${DEFAULT_PROCESSING_MODE:-fast}
+      - FAST_MODE_MAX_CLIPS=${FAST_MODE_MAX_CLIPS:-4}
+      - FAST_MODE_TRANSCRIPT_MODEL=${FAST_MODE_TRANSCRIPT_MODEL:-universal}
+      - SELF_HOST=${SELF_HOST:-true}
+      - BACKEND_AUTH_SECRET=${BACKEND_AUTH_SECRET}
+      - APP_SETTINGS_ENCRYPTION_KEY=${APP_SETTINGS_ENCRYPTION_KEY}
+      - AUTH_SIGNATURE_TTL_SECONDS=${AUTH_SIGNATURE_TTL_SECONDS:-300}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3001,http://127.0.0.1:3001,http://localhost:3107,http://sp.localhost:3107,http://supoclip.localhost:3107}
+      - FREE_PLAN_TASK_LIMIT=${FREE_PLAN_TASK_LIMIT:-10}
+      - PRO_PLAN_TASK_LIMIT=${PRO_PLAN_TASK_LIMIT:-50}
+      - SCALE_PLAN_TASK_LIMIT=${SCALE_PLAN_TASK_LIMIT:-300}
+      - AWS_REGION=${AWS_REGION}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - "SES_FROM_EMAIL=${SES_FROM_EMAIL:-SupoClip <onboarding@example.com>}"
+      - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:3001}
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+
+  mcp:
+    build:
+      context: ./mcp
+      dockerfile: ../docker/mcp.Dockerfile
+    container_name: supoclip-mcp
+    ports:
+      - "127.0.0.1:${SUPOCLIP_MCP_PORT:-9100}:9100"
+    volumes:
+      - mcp_downloads:/app/supoclip-downloads
+    environment:
+      - SUPOCLIP_API_URL=${SUPOCLIP_API_URL:-http://backend:8000}
+      - SUPOCLIP_DOWNLOAD_DIR=/app/supoclip-downloads
+      - SUPOCLIP_TIMEOUT=${SUPOCLIP_TIMEOUT:-60}
+      - SUPOCLIP_MCP_TRANSPORT=${SUPOCLIP_MCP_TRANSPORT:-sse}
+      - SUPOCLIP_MCP_HOST=0.0.0.0
+      - SUPOCLIP_MCP_PORT=9100
+      - SUPOCLIP_MCP_PUBLIC_URL=${SUPOCLIP_MCP_PUBLIC_URL:-https://mcp.supoclip.com}
+      - SUPOCLIP_MCP_REQUIRE_BEARER_AUTH=${SUPOCLIP_MCP_REQUIRE_BEARER_AUTH:-true}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1', 9100), 5); s.close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  # Redis for caching and job queues (useful for video processing)
+  redis:
+    image: redis:7-alpine
+    container_name: supoclip-redis
+    ports:
+      - "127.0.0.1:6379:6379"
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+    command:
+      [
+        "sh",
+        "-c",
+        "if [ -n \"$${REDIS_PASSWORD}\" ]; then exec docker-entrypoint.sh redis-server --requirepass \"$${REDIS_PASSWORD}\"; fi; exec docker-entrypoint.sh redis-server",
+      ]
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "if [ -n \"$${REDIS_PASSWORD}\" ]; then redis-cli -a \"$${REDIS_PASSWORD}\" ping; else redis-cli ping; fi",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # PostgreSQL database for storing video metadata, user data, etc.
+  postgres:
+    image: postgres:15-alpine
+    container_name: supoclip-postgres
+    environment:
+      POSTGRES_DB: supoclip
+      POSTGRES_USER: supoclip
+      POSTGRES_PASSWORD: supoclip_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U supoclip -d supoclip"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  uploads:
+    driver: local
+  clips:
+    driver: local
+  redis_data:
+    driver: local
+  postgres_data:
+    driver: local
+  mcp_downloads:
+    driver: local
+
+networks:
+  default:
+    name: supoclip-network
