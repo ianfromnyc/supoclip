@@ -20,8 +20,16 @@
 # of speed.
 services:
   whisperx:
-    # CPU image (amd64 + arm64). On an NVIDIA host, switch to
-    # `:latest-gpu` and add `gpus: all` below for a large speed-up.
+    # CPU image (amd64 + arm64). On an NVIDIA host, switch to `:latest-gpu`
+    # and give the container a GPU for a large speed-up. `gpus: all` is the
+    # short form, but it only parses from Compose v2.30+; this project's floor
+    # is v2.24, so use the long form below unless you know your Compose is
+    # newer:
+    #   deploy:
+    #     resources:
+    #       reservations:
+    #         devices:
+    #           - capabilities: [gpu]
     image: onerahmet/openai-whisper-asr-webservice:latest
     container_name: supoclip-whisperx
     env_file:
