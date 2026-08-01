@@ -84,7 +84,12 @@ Mechanics worth knowing when editing these — all verified on Compose v5.2.0:
 - `env_file` paths inside an **included** file resolve relative to that file's
   own directory, not the project root — hence `../../.env.whisperx` from
   `docker/options/`. In the root compose file they are project-relative.
-- Requires Compose **v2.24+** (validated on v5.x); `start.sh` enforces it.
+- Requires Compose **v5.0.0+**; `start.sh` enforces it. `include:` itself landed
+  in v2.24, but every overlay here merges into a service the root file also
+  defines, and partial-service includes only work from v5.0.0. Every v2.x
+  release — through the final v2.40.3 — rejects them with
+  `services.backend conflicts with imported resource` instead of merging, so
+  the add-ons cannot work there at all.
 
 Dockerfiles live in `docker/` (`backend.Dockerfile`, `frontend.Dockerfile`,
 `mcp.Dockerfile`). Each build context is still the app directory, so the

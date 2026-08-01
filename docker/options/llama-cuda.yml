@@ -51,12 +51,10 @@ services:
       # which lands on <repo>/models. The same rule applies to a value set
       # in .env, so use an absolute path there.
       - ${LLAMA_MODELS_DIR:-../../models}:/models:ro
-    # Hands every NVIDIA GPU to the container. The long `deploy:` form is
-    # used because it works on the project's whole supported Compose range
-    # (v2.24+, per start.sh and docs/setup.md); the shorter equivalent
-    # `gpus: all` only parses from v2.30+, so on older releases it takes the
-    # entire stack down. Prefer the shorthand? It is safe once your Compose
-    # is v2.30 or newer.
+    # Hands every NVIDIA GPU to the container. `gpus: all` is the shorter
+    # equivalent and is safe on the v5.0.0+ this project requires; the long
+    # form is kept because it is also what a plain `docker stack` and older
+    # tooling understand, and it costs nothing here.
     deploy:
       resources:
         reservations:

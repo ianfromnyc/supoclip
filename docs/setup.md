@@ -6,7 +6,7 @@ This guide covers the recommended Docker setup, local development mode, and the 
 
 ### Required software
 
-- Docker Desktop or a Docker Engine installation with Compose v2.24 or newer — the version that introduced the top-level `include:` key the optional add-ons use. (The legacy v1 `docker-compose` binary cannot read this project's compose file at all. Validated against Compose v5.x.)
+- Docker Desktop or a Docker Engine installation with **Compose v5.0.0 or newer**. The base stack alone needs less, but every optional add-on merges into a service the root compose file also defines, and partial-service includes only work from v5.0.0. On any v2.x release — including the final v2.40.3 — enabling one fails with `services.backend conflicts with imported resource` rather than merging, so the add-ons cannot work there. (The legacy v1 `docker-compose` binary cannot read this project's compose file at all.)
 - Git
 
 ### Required credentials
@@ -234,8 +234,8 @@ the service itself. The file is read by all three containers.
   GB. Expect the first request to take a long time, and `ASR_MODEL=small` to be
   dramatically faster than the `large-v3` default on a CPU-only host.
 - On an NVIDIA host, switch the image to `:latest-gpu` and give the service
-  the GPU. The `gpus: all` shorthand needs Compose v2.30+; this project's
-  floor is v2.24, so on 2.24–2.29 use the long form instead:
+  the GPU, with either `gpus: all` or the equivalent long form that
+  `llama-cuda.yml` uses:
 
   ```yaml
   deploy:

@@ -21,10 +21,8 @@
 services:
   whisperx:
     # CPU image (amd64 + arm64). On an NVIDIA host, switch to `:latest-gpu`
-    # and give the container a GPU for a large speed-up. `gpus: all` is the
-    # short form, but it only parses from Compose v2.30+; this project's floor
-    # is v2.24, so use the long form below unless you know your Compose is
-    # newer:
+    # and give the container a GPU for a large speed-up — add either
+    # `gpus: all`, or the equivalent long form used by llama-cuda.yml:
     #   deploy:
     #     resources:
     #       reservations:

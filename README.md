@@ -51,7 +51,7 @@ SupoClip provides the same core functionality with more control:
 
 ### Prerequisites
 
-- Docker and Docker Compose
+- Docker, with **Docker Compose v5.0.0 or newer** — the optional add-ons merge into services the base stack defines, and older Compose refuses that with `conflicts with imported resource` instead of merging
 - An AssemblyAI API key (for transcription) - [Get one here](https://www.assemblyai.com/) — or set `TRANSCRIPTION_PROVIDER=whisperx` and enable the `whisperx` add-on for fully local transcription, no key needed
 - An LLM provider for AI analysis - OpenAI, Google, Anthropic, or Ollama
 

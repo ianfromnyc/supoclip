@@ -387,6 +387,12 @@ appears — or Compose refuses to parse the file at all.
 
 ### Most likely causes
 
+- **Compose is older than v5.0.0.** Check with `docker compose version`. Every
+  add-on merges into a service the base stack also defines, and partial-service
+  includes only work from v5.0.0 — on any v2.x, up to and including the final
+  v2.40.3, Compose reports `services.backend conflicts with imported resource`
+  and refuses to start anything. Update Docker Desktop or the Compose plugin;
+  there is no workaround short of inlining the overlay by hand
 - Only the add-on's own line is uncommented; the `include:` line above it is
   still a comment, so the whole block is inert
 - Its `.env.<option>` was never created. Missing scoped env files are skipped

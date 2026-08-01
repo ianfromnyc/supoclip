@@ -4,7 +4,10 @@ Run SupoClip with Docker in just one command!
 
 ## Prerequisites
 
-1. **Docker Desktop** installed and running
+1. **Docker Desktop** installed and running, with **Compose v5.0.0 or newer**
+   (`docker compose version`). The optional add-ons merge into services the base
+   stack already defines, and older Compose rejects that with
+   `conflicts with imported resource` rather than merging.
 2. **API Keys** (get these from the providers):
    - [AssemblyAI API Key](https://www.assemblyai.com/) (required for transcription)
    - At least one AI provider:

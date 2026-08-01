@@ -277,18 +277,23 @@ else
     exit 1
 fi
 
-# docker-compose.yml needs Compose v2.24+ for the top-level `include:` key the
-# optional add-ons rely on; older v2 releases and the legacy v1 binary cannot
-# parse it. Non-numeric version output is treated as too old. (Validated on
-# v5.x, which is what current Docker Desktop ships.)
+# The add-ons need Compose v5.0.0+. `include:` itself landed in v2.24, but every
+# overlay in docker/options/ merges into a service the root file also defines —
+# vaapi.yml adds devices: to backend and worker, the rest add a worker
+# depends_on entry — and partial-service includes only work from v5.0.0. On
+# v2.x, up to and including the final v2.40.3, the same file fails with
+# "services.backend conflicts with imported resource" rather than merging.
+#
+# Only the major version matters because the floor is x.0.0. Non-numeric output
+# is treated as too old, which also catches the legacy v1 `docker-compose`.
 COMPOSE_VERSION=$($DOCKER_COMPOSE version --short 2>/dev/null || true)
 COMPOSE_VERSION=${COMPOSE_VERSION#v}
 COMPOSE_MAJOR=$(echo "$COMPOSE_VERSION" | cut -d. -f1)
-COMPOSE_MINOR=$(echo "$COMPOSE_VERSION" | cut -d. -f2)
 case "$COMPOSE_MAJOR" in ''|*[!0-9]*) COMPOSE_MAJOR=0 ;; esac
-case "$COMPOSE_MINOR" in ''|*[!0-9]*) COMPOSE_MINOR=0 ;; esac
-if [ "$COMPOSE_MAJOR" -lt 2 ] || { [ "$COMPOSE_MAJOR" -eq 2 ] && [ "$COMPOSE_MINOR" -lt 24 ]; }; then
-    echo -e "${RED}Error: Docker Compose v2.24 or newer is required (found ${COMPOSE_VERSION:-unknown})!${NC}"
+if [ "$COMPOSE_MAJOR" -lt 5 ]; then
+    echo -e "${RED}Error: Docker Compose v5.0.0 or newer is required (found ${COMPOSE_VERSION:-unknown})!${NC}"
+    echo "Older releases cannot merge the optional add-ons in docker/options/ into the"
+    echo "base stack: they report 'conflicts with imported resource' and refuse to start."
     echo "Update Docker Desktop or the Docker Compose plugin and try again."
     echo ""
     exit 1
