@@ -201,62 +201,6 @@ else
     echo ""
 fi
 
-if [ -n "${LLM:-}" ]; then
-    case "$LLM" in
-        google:*|google-gla:*|openai:*|anthropic:*|ollama:*)
-            ;;
-        *)
-            echo -e "${YELLOW}Warning: Unsupported LLM value '$LLM'${NC}"
-            echo "Use google-gla:*, openai:*, or anthropic:* (ollama:* is deprecated)"
-            echo ""
-            ;;
-    esac
-fi
-
-# Local WhisperX transcription does not need an AssemblyAI key. The whisperx
-# add-on keeps TRANSCRIPTION_PROVIDER in .env.whisperx, not in .env, and the
-# backend and worker read it from there through env_file — so read the same
-# file here, or a correctly enabled add-on with no AssemblyAI account would
-# still get the warning below. Sourced after .env so the scoped file wins,
-# matching which file owns the switch; TRANSCRIPTION_PROVIDER set directly in
-# .env (the bare-metal path) keeps working through `source .env` above.
-if [ -f .env.whisperx ]; then
-    source .env.whisperx
-fi
-if [ -z "$ASSEMBLY_AI_API_KEY" ] && [ "${TRANSCRIPTION_PROVIDER:-assemblyai}" != "whisperx" ]; then
-    echo -e "${YELLOW}Warning: ASSEMBLY_AI_API_KEY is not set in .env${NC}"
-    echo "Video transcription will not work without this key"
-    echo "(or set TRANSCRIPTION_PROVIDER=whisperx for local transcription)."
-    echo ""
-fi
-
-if [ "${LLM:-}" = "ollama:" ] || [ "${LLM:-}" = "openai:" ]; then
-    echo -e "${YELLOW}Warning: LLM=${LLM} is missing a model name${NC}"
-    echo "Use a value like LLM=openai:gpt-oss:20b"
-    echo ""
-elif [[ "${LLM:-}" == ollama:* ]]; then
-    echo -e "${YELLOW}Note: LLM=ollama:* is deprecated${NC}"
-    echo "It runs through the same OpenAI-compatible client, reading"
-    echo "OLLAMA_BASE_URL and OLLAMA_API_KEY. Prefer LLM=openai:<model> with"
-    echo "OPENAI_BASE_URL for new installs."
-    echo ""
-fi
-
-# A self-hosted endpoint usually needs no API key at all, so a missing key is
-# only worth warning about when the selected LLM actually talks to a hosted
-# provider. Every .env ships an OPENAI_BASE_URL, so its presence proves nothing —
-# what matters is whether it still points at OpenAI's own API.
-if [ -z "$OPENAI_API_KEY" ] && [ -z "$GOOGLE_API_KEY" ] && [ -z "$ANTHROPIC_API_KEY" ]; then
-    if [[ "${LLM:-}" == openai:* && -n "${OPENAI_BASE_URL:-}" && "${OPENAI_BASE_URL:-}" != *api.openai.com* ]] || [[ "${LLM:-}" == ollama:* ]]; then
-        :
-    else
-    echo -e "${YELLOW}Warning: No AI provider API key is set in .env${NC}"
-    echo "You need at least one of: OPENAI_API_KEY, GOOGLE_API_KEY, ANTHROPIC_API_KEY,"
-    echo "or LLM=openai:<model> with OPENAI_BASE_URL pointing at your own endpoint"
-    echo ""
-    fi
-fi
-
 # Check if Docker is running
 if ! docker info > /dev/null 2>&1; then
     echo -e "${RED}Error: Docker is not running!${NC}"
@@ -331,11 +275,18 @@ option_is_enabled() {
 }
 
 TUNNEL_ENABLED=0
+# Whether transcription actually runs on WhisperX, which takes both halves of
+# the add-on: the include supplies the service and the env_file wiring, and
+# .env.whisperx supplies TRANSCRIPTION_PROVIDER. Neither a stray .env.whisperx
+# nor a legacy TRANSCRIPTION_PROVIDER in the root .env reaches the containers,
+# so neither may excuse a missing AssemblyAI key below.
+WHISPERX_ACTIVE=0
 for option in vaapi whisperx tunnel llama; do
     scoped_env=".env.${option}"
     if option_is_enabled "$option"; then
         [ "$option" = "tunnel" ] && TUNNEL_ENABLED=1
         if [ -f "$scoped_env" ]; then
+            [ "$option" = "whisperx" ] && WHISPERX_ACTIVE=1
             echo -e "${GREEN}Add-on enabled: ${option} (${scoped_env})${NC}"
         else
             echo -e "${YELLOW}Warning: the ${option} add-on is enabled but ${scoped_env} is missing${NC}"
@@ -360,6 +311,65 @@ for option in vaapi whisperx tunnel llama; do
         echo ""
     fi
 done
+
+# ── Configuration warnings ────────────────────────────────────────
+# These run after add-on detection because some of them depend on it: whether a
+# key is required is a question about the stack that is actually configured, not
+# about what happens to be sitting in a file.
+
+if [ -n "${LLM:-}" ]; then
+    case "$LLM" in
+        google:*|google-gla:*|openai:*|anthropic:*|ollama:*)
+            ;;
+        *)
+            echo -e "${YELLOW}Warning: Unsupported LLM value '$LLM'${NC}"
+            echo "Use google-gla:*, openai:*, or anthropic:* (ollama:* is deprecated)"
+            echo ""
+            ;;
+    esac
+fi
+
+# Only a running WhisperX add-on removes the need for an AssemblyAI key, and
+# that takes the include and .env.whisperx together (WHISPERX_ACTIVE above).
+# Deciding this from a sourced TRANSCRIPTION_PROVIDER instead would clear the
+# warning for two configurations that transcribe on AssemblyAI regardless: a
+# leftover .env.whisperx with the include commented out, and a legacy
+# TRANSCRIPTION_PROVIDER=whisperx in the root .env, which the compose template
+# stopped passing through when the add-on settings were scoped.
+if [ -z "$ASSEMBLY_AI_API_KEY" ] && [ "$WHISPERX_ACTIVE" -eq 0 ]; then
+    echo -e "${YELLOW}Warning: ASSEMBLY_AI_API_KEY is not set in .env${NC}"
+    echo "Video transcription will not work without this key. To transcribe locally"
+    echo "instead, enable the whisperx add-on: uncomment docker/options/whisperx.yml"
+    echo "in docker-compose.yml and run 'cp .env.whisperx.example .env.whisperx'."
+    echo ""
+fi
+
+if [ "${LLM:-}" = "ollama:" ] || [ "${LLM:-}" = "openai:" ]; then
+    echo -e "${YELLOW}Warning: LLM=${LLM} is missing a model name${NC}"
+    echo "Use a value like LLM=openai:gpt-oss:20b"
+    echo ""
+elif [[ "${LLM:-}" == ollama:* ]]; then
+    echo -e "${YELLOW}Note: LLM=ollama:* is deprecated${NC}"
+    echo "It runs through the same OpenAI-compatible client, reading"
+    echo "OLLAMA_BASE_URL and OLLAMA_API_KEY. Prefer LLM=openai:<model> with"
+    echo "OPENAI_BASE_URL for new installs."
+    echo ""
+fi
+
+# A self-hosted endpoint usually needs no API key at all, so a missing key is
+# only worth warning about when the selected LLM actually talks to a hosted
+# provider. Every .env ships an OPENAI_BASE_URL, so its presence proves nothing —
+# what matters is whether it still points at OpenAI's own API.
+if [ -z "$OPENAI_API_KEY" ] && [ -z "$GOOGLE_API_KEY" ] && [ -z "$ANTHROPIC_API_KEY" ]; then
+    if [[ "${LLM:-}" == openai:* && -n "${OPENAI_BASE_URL:-}" && "${OPENAI_BASE_URL:-}" != *api.openai.com* ]] || [[ "${LLM:-}" == ollama:* ]]; then
+        :
+    else
+    echo -e "${YELLOW}Warning: No AI provider API key is set in .env${NC}"
+    echo "You need at least one of: OPENAI_API_KEY, GOOGLE_API_KEY, ANTHROPIC_API_KEY,"
+    echo "or LLM=openai:<model> with OPENAI_BASE_URL pointing at your own endpoint"
+    echo ""
+    fi
+fi
 
 if [ "$TUNNEL_ENABLED" -eq 1 ]; then
     if [[ "${NEXT_PUBLIC_APP_URL:-}" != https://* ]] || [[ "${NEXT_PUBLIC_API_URL:-}" != https://* ]] \
