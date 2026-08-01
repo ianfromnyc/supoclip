@@ -312,13 +312,19 @@ Covered in detail under
 Earlier versions shipped a tracked `docker-compose.yml` and toggled options
 with Compose profiles. If you are coming from one of those:
 
-1. Delete `COMPOSE_PROFILES` and `VAAPI_ENABLED` from `.env`. Both are gone;
+1. `cp docker-compose.yml.example docker-compose.yml`. **Do this first.**
+   Pulling this change deleted the tracked `docker-compose.yml`, so until you
+   make your own copy Compose has no configuration file at all and every
+   command below fails before it starts.
+2. Delete `COMPOSE_PROFILES` and `VAAPI_ENABLED` from `.env`. Both are gone;
    there is no replacement variable, because toggling now happens in the
    compose file itself.
-2. Run `docker compose down --remove-orphans` **once**. This clears the old
+3. Run `docker compose down --remove-orphans` **once**. This clears the old
    `backend-vaapi` / `worker-vaapi` / `config-guard` containers, which would
-   otherwise collide on container names and ports.
-3. `cp docker-compose.yml.example docker-compose.yml`.
+   otherwise collide on container names and ports. They are found by the
+   project label, which is derived from the directory name and so is unchanged
+   by the new template — `--remove-orphans` is what extends the sweep to
+   containers the current file no longer defines.
 4. Re-enable what you were using by uncommenting the matching include:
    `VAAPI_ENABLED=true` becomes `docker/options/vaapi.yml`, and the `tunnel`
    profile becomes `docker/options/tunnel.yml`.

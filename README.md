@@ -222,11 +222,14 @@ If you enable DataFast, also verify that:
   `.env.llama`, because `environment:` entries outrank any env file
 
 **Upgrading from the old profile-based setup:**
+- `cp docker-compose.yml.example docker-compose.yml` **first** — pulling this
+  change deleted the tracked compose file, so until you copy it Compose has no
+  configuration and every command below fails
 - Delete `COMPOSE_PROFILES` and `VAAPI_ENABLED` from `.env` — both are gone
 - Run `docker compose down --remove-orphans` once, to clear the old
-  `backend-vaapi`/`worker-vaapi`/`config-guard` containers
-- `cp docker-compose.yml.example docker-compose.yml` and re-enable what you
-  used by uncommenting its include
+  `backend-vaapi`/`worker-vaapi`/`config-guard` containers (they share the
+  project label, so the new template still finds and removes them)
+- Re-enable what you used by uncommenting its include
 - Move each add-on's settings out of `.env` and into its `.env.<option>` (see
   the list above), copying the matching `.example` as a starting point
 
