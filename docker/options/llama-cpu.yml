@@ -61,3 +61,20 @@ services:
       timeout: 10s
       retries: 5
       start_period: 120s
+
+  # Hold the worker back until the model is loaded. Without this ordering,
+  # `docker compose up -d` starts the worker at once, and it can pull queued
+  # jobs while llama is still loading (up to the healthcheck's 120s
+  # start_period) — those jobs fail with connection errors against
+  # http://llama:8080/v1. Compose merges this `depends_on` as a union with
+  # the root file's, so postgres/redis/backend stay required too.
+  #
+  # The trade-off is real: if llama never becomes healthy — most often a
+  # wrong LLAMA_ARG_MODEL path, which makes llama-server exit at startup —
+  # the worker does not start at all. That turns "LLM calls fail per job"
+  # into "no video processing at all". `docker compose ps` shows which
+  # service is holding the stack up.
+  worker:
+    depends_on:
+      llama:
+        condition: service_healthy
