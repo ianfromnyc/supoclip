@@ -256,8 +256,10 @@ matching your hardware:
 | `llama-vulkan.yml` | `…:server-vulkan` | Any Vulkan driver |
 
 All five share one `.env.llama`. Supply the model yourself — put a `.gguf` file
-in `./models` (or point `LLAMA_MODELS_DIR` elsewhere) — and configure the
-server with llama.cpp's own variables in `.env.llama`:
+in `models/` at the repo root, or set `LLAMA_MODELS_DIR` in `.env` to an
+absolute path (a relative value resolves against `docker/options/`, not the
+repo root) — and configure the server with llama.cpp's own variables in
+`.env.llama`:
 
 ```env
 LLAMA_ARG_MODEL=/models/your-model.gguf

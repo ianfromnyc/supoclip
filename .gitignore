@@ -20,6 +20,9 @@ frontend/e2e/.seed.json
 # what lets you uncomment add-on includes without fighting every `git pull`.
 docker-compose.yml
 
+# Local .gguf model files for the llama add-ons (docker/options/llama-*.yml).
+/models/
+
 # local demo / scratch artifacts (not for the repo)
 backend/demo_clips/
 backend/demo_clips_*.log

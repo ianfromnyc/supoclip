@@ -10,7 +10,8 @@
 #   cp .env.llama.example .env.llama
 #
 # All five variants share that one file. You must supply the model yourself:
-# put a .gguf in the directory LLAMA_MODELS_DIR names (default ./models) and
+# put a .gguf in the directory LLAMA_MODELS_DIR names (default: models/ at
+# the repo root; an override in .env must be an absolute path) and
 # point LLAMA_ARG_MODEL at it. Without .env.llama the server has no model to
 # load and exits on startup.
 #
@@ -46,7 +47,12 @@ services:
       # Read-only: the server never writes to the model directory. The host
       # path is a stack-level layout choice, so it stays in the root .env —
       # compose can only interpolate from there.
-      - ${LLAMA_MODELS_DIR:-./models}:/models:ro
+      #
+      # A relative path here resolves against this file's directory
+      # (docker/options/), not the project root — hence the ../../ default,
+      # which lands on <repo>/models. The same rule applies to a value set
+      # in .env, so use an absolute path there.
+      - ${LLAMA_MODELS_DIR:-../../models}:/models:ro
     restart: unless-stopped
     healthcheck:
       # /health reports 200 only once the model is loaded into memory.
