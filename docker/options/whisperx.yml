@@ -62,6 +62,18 @@ services:
       retries: 5
       start_period: 600s
 
+  # Hold the worker back until WhisperX is actually ready to transcribe. The
+  # 600s start_period above is exactly the window this closes: without it the
+  # worker comes up immediately, pulls queued jobs while the model is still
+  # downloading, and every one of them fails with a connection error — and
+  # transcription is mandatory for every task. Compose merges this depends_on
+  # as a union with the root file's (postgres, redis, backend), so nothing is
+  # lost; `docker compose ps` shows the worker Created, waiting on whisperx.
+  worker:
+    depends_on:
+      whisperx:
+        condition: service_healthy
+
 volumes:
   whisperx_cache:
     driver: local
