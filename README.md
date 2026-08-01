@@ -152,8 +152,13 @@ steps — uncomment its line (and the `include:` line above it) at the top of yo
 | `llama-*.yml` | Local LLM via llama.cpp — uncomment exactly ONE variant matching your hardware | `cp .env.llama.example .env.llama`, plus `LLM=openai:local` and `OPENAI_BASE_URL=http://llama:8080/v1` in `.env` |
 
 Every `.env.<option>` is git-ignored and holds only that add-on's configuration,
-so it is short enough to read in full — and deleting it turns the add-on off.
-`./start.sh` warns if an add-on is enabled without its file, or vice versa.
+so it is short enough to read in full. To turn an add-on off, comment its
+include line back out and run `docker compose up -d --remove-orphans` — deleting
+the settings file alone never stops the service, because Docker reads it only
+when it creates a container. For `tunnel.yml` that matters: a running
+`cloudflared` keeps its token and keeps publishing the app. Delete the
+`.env.<option>` afterwards; `./start.sh` warns if an add-on is enabled without
+its file, or vice versa.
 
 Details in [docs/setup.md](docs/setup.md).
 

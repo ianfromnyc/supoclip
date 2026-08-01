@@ -118,8 +118,11 @@ docker-compose up -d
 ```
 
 Each add-on's settings live entirely in its own `.env.<option>`, so the file is
-short enough to read in full, and deleting it turns the add-on off. `./start.sh`
-warns if you do one step without the other. See
+short enough to read in full. To turn an add-on off, comment its include line
+back out and run `docker-compose up -d --remove-orphans`, then delete the
+`.env.<option>`. Deleting the file alone never stops the service — for the
+tunnel, a running `cloudflared` keeps its token and keeps publishing the app.
+`./start.sh` warns if you do one step without the other. See
 [docs/setup.md](docs/setup.md#optional-add-ons).
 
 ## Environment Configuration

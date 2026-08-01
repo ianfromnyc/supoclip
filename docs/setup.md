@@ -465,8 +465,13 @@ cp .env.tunnel.example .env.tunnel
 TUNNEL_TOKEN=your_tunnel_token
 ```
 
-Keeping it there rather than in `.env` means the one file holding your ingress
-credential is also the file you delete to stop publishing the app.
+Keeping it there rather than in `.env` keeps the ingress credential in exactly
+one short, git-ignored file. Deleting the file does not stop publishing the
+app, though: Docker reads `env_file` only when it creates a container, and a
+running `cloudflared` keeps its token and restarts `unless-stopped`. To stop
+public ingress, comment the include back out and run
+`docker compose up -d --remove-orphans` (see [Caveats](#caveats) below); delete
+`.env.tunnel` afterwards to remove the credential from disk.
 
 The rest stays in `.env`, because the frontend bakes these into its image at
 build time and the backend needs the origin allow-listed:
