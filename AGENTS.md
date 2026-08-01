@@ -14,14 +14,21 @@ This repository is a monorepo with three apps:
 - `frontend/`: main Next.js app (`src/app`, `src/components`, `src/lib`, `prisma/`).
 - `mcp/`: standalone `supoclip-mcp` server, a thin client over the REST API.
 
-Infra and bootstrap files live at the root: `docker-compose.yml`, `init.sql`, `.env.example`, `Makefile`, and `start.sh`.
+- `docker/`: `*.Dockerfile` for each app, plus `options/` — optional compose overlays enabled by uncommenting an `include:` line.
+
+Infra and bootstrap files live at the root: `docker-compose.yml.example`, `init.sql`, `.env.example`, `Makefile`, and `start.sh`. Note that `docker-compose.yml` itself is not tracked; copy it from the example (`./start.sh` does this) before running any compose command.
 
 ## Build, Test, and Development Commands
 
 ### Docker (recommended)
 
+The repo ships `docker-compose.yml.example`, not a live compose file. The
+first step of any Docker work is `cp docker-compose.yml.example
+docker-compose.yml` (`./start.sh` does it automatically); the copy is
+git-ignored so local edits never collide with a pull.
+
 ```bash
-docker-compose up -d              # Start the full stack (plus optional `cloudflared` under the `tunnel` profile)
+docker-compose up -d              # Start all 6 services
 docker-compose up -d --build      # Rebuild after changes
 docker-compose logs -f            # Stream all service logs
 docker-compose logs -f backend    # Debug backend
@@ -39,21 +46,49 @@ Services and their published host ports (all bound to `127.0.0.1`):
 | `worker` | — | ARQ worker, no published port |
 | `redis` | 6379 | |
 | `postgres` | — | Not published; reachable only on the compose network |
-| `config-guard` | — | Run-once busybox check; aborts startup on a bad profile switch |
-| `cloudflared` | — | Cloudflare Tunnel ingress; opt-in via `--profile tunnel` / `CLOUDFLARE_TUNNEL_TOKEN` |
 
-`.env` must contain `COMPOSE_PROFILES=cpu-false,vaapi-true` (see `.env.example`)
-or no backend/worker variant starts — the `config-guard` service aborts startup
-with instructions if the switch is misconfigured. `config-guard` reads
-`COMPOSE_PROFILES` from the environment/`.env`; activating profiles with the
-`--profile` CLI flag instead is unsupported. Setting `VAAPI_ENABLED=true`
-swaps `backend`/`worker` for `backend-vaapi`/`worker-vaapi`, which map the host
-GPU render nodes (`/dev/dri`) for VAAPI hardware encoding — pair it with
-`VIDEO_ENCODER=vaapi`. In that mode, compose commands must target the `-vaapi`
-service names (`docker-compose logs -f worker-vaapi`); container names
-(`supoclip-backend`, `supoclip-worker`) stay the same. Flipping the switch on a
-running stack needs `docker compose down --remove-orphans` first — a plain
-`up -d` collides with the previous variant's containers.
+### Optional add-ons (`docker/options/`)
+
+Everything optional is a separate compose file pulled in through the top-level
+`include:` block in `docker-compose.yml`, which ships fully commented out, plus
+a matching `.env.<option>` copied from its `.example`. Uncomment + copy is the
+whole toggle — there are no profiles and no `COMPOSE_PROFILES`.
+
+| File | Adds | Settings file |
+|------|------|---------------|
+| `vaapi.yml` | `devices: /dev/dri` on `backend` + `worker` | `.env.vaapi` (`VIDEO_ENCODER`, `VAAPI_DEVICE`) |
+| `whisperx.yml` | `whisperx` service (whisper-asr-webservice, port 9000) | `.env.whisperx` (`TRANSCRIPTION_PROVIDER`, `WHISPERX_*`, `ASR_MODEL`, `HF_TOKEN`) |
+| `tunnel.yml` | `cloudflared` service | `.env.tunnel` (`TUNNEL_TOKEN`) |
+| `llama-{cpu,cuda,rocm,sycl,vulkan}.yml` | `llama` service (llama.cpp server, port 8080); enable exactly ONE | `.env.llama` (`LLAMA_ARG_*`), plus `LLM`/`OPENAI_BASE_URL` in `.env` |
+
+Mechanics worth knowing when editing these — all verified on Compose v5.2.0:
+
+- An included file's service **merges** with the root definition, and the root
+  file **wins** on conflicting scalars. Overlays can therefore only *add* keys
+  (`vaapi.yml` adds `devices:`).
+- There is **no optional include**. A missing `path` is a hard parse error and
+  `required: false` is silently ignored — hence comment-driven toggling. Include
+  long syntax accepts only `path`, `project_directory`, `env_file`.
+- Service-level `env_file` **does** honour `required: false`: a missing file is
+  skipped silently. That is what lets `backend`/`worker` list `.env.vaapi` and
+  `.env.whisperx` unconditionally.
+- `environment:` **always** outranks `env_file` — including `VAR=${VAR:-}`
+  rendering `VAR: ""` and a bare `VAR` rendering `VAR: null`, both of which
+  shadow the file. So a variable owned by a scoped file must be **absent** from
+  `environment:`, and `config.py`'s defaults cover the no-file case.
+- Compose interpolates `${...}` only from the root `.env`, never from a scoped
+  file. A scoped file can therefore only reach a service through variable names
+  that service already understands, which is why they use image-native names
+  (`ASR_MODEL`, `TUNNEL_TOKEN`, `LLAMA_ARG_*`). The llama services pass no
+  `command:` at all, since a CLI flag would override `LLAMA_ARG_*`.
+- `env_file` paths inside an **included** file resolve relative to that file's
+  own directory, not the project root — hence `../../.env.whisperx` from
+  `docker/options/`. In the root compose file they are project-relative.
+- Requires Compose **v2.24+** (validated on v5.x); `start.sh` enforces it.
+
+Dockerfiles live in `docker/` (`backend.Dockerfile`, `frontend.Dockerfile`,
+`mcp.Dockerfile`). Each build context is still the app directory, so the
+compose `dockerfile:` values are context-relative (`../docker/backend.Dockerfile`).
 
 ### Backend (local)
 
@@ -121,7 +156,7 @@ utils/               → Thread pool helpers for blocking operations (async_help
 ### Video Processing Pipeline
 
 1. **Input** → YouTube URL (yt-dlp) or uploaded file
-2. **Transcription** → AssemblyAI word-level timestamps (cached as `.transcript_cache.json`); or local WhisperX via `TRANSCRIPTION_PROVIDER=whisperx` (`src/transcription_whisperx.py`, optional `whisperx` uv extra)
+2. **Transcription** → AssemblyAI word-level timestamps (cached as `.transcript_cache.json`); or local WhisperX via `TRANSCRIPTION_PROVIDER=whisperx` (`src/transcription_whisperx.py`), which has two implementations picked by `WHISPERX_API_URL`: HTTP against the `whisperx` add-on container (how Docker runs it) when set, or in-process from the optional `whisperx` uv extra when unset. Both emit the identical transcript structure
 3. **AI Analysis** → Pydantic AI selects 2-5 viral segments (15-60s each, ideally 25-50s) with virality scoring
 4. **Clip Generation** → direct `ffmpeg` subprocess calls (`run_ffmpeg_command()` in `video_utils.py`) build the clips. There is no MoviePy dependency — every render is a hand-built ffmpeg argv using `-vf`/`-filter_complex`. Clips get:
    - Face-centered cropping: MediaPipe → OpenCV DNN → Haar cascade (fallback chain)
@@ -212,11 +247,15 @@ stored (`api_keys` table). The frontend manages keys at `/settings/api-keys`.
 
 Required in `.env` (root) or `backend/.env`:
 
+Note the split: `.env` holds core and stack-level settings, while each optional
+add-on's settings live in its own `.env.<option>` (see the add-ons table above).
+`TRANSCRIPTION_PROVIDER`, `WHISPERX_*`, `HF_TOKEN`, `VIDEO_ENCODER`,
+`VAAPI_DEVICE` and `TUNNEL_TOKEN` are **not** read from `.env` under Docker —
+the compose file no longer passes them through. `config.py` still reads them as
+plain environment variables, so a bare-metal run can keep them in `.env`.
+
 ```bash
-ASSEMBLY_AI_API_KEY=...              # Required unless TRANSCRIPTION_PROVIDER=whisperx
-TRANSCRIPTION_PROVIDER=assemblyai    # Or `whisperx` for local transcription (needs the
-                                     # backend's `whisperx` extra; see WHISPERX_* / HF_TOKEN
-                                     # in .env.example)
+ASSEMBLY_AI_API_KEY=...              # Required unless transcribing with whisperx
 LLM=google-gla:gemini-3-flash-preview # Format: provider:model-name
 GOOGLE_API_KEY=...                   # Or OPENAI_API_KEY / ANTHROPIC_API_KEY
 OPENAI_BASE_URL=https://api.openai.com/v1  # The endpoint openai:* talks to. Change it
@@ -238,9 +277,11 @@ DATABASE_URL=postgresql+asyncpg://...
 BETTER_AUTH_SECRET=...               # Frontend auth secret
 ```
 
-Compose-level switches (`COMPOSE_PROFILES`, `VAAPI_ENABLED`, `VIDEO_ENCODER`,
-`SUPOCLIP_MCP_PORT`, `CLOUDFLARE_TUNNEL_TOKEN`) are documented under
-[Docker](#docker-recommended) and in `.env.example`.
+Stack-level switches Compose interpolates from `.env` (`SUPOCLIP_MCP_PORT`,
+`FRONTEND_BUILD_TARGET`, `LLAMA_MODELS_DIR`, `LLAMA_PORT`, `WHISPERX_PORT`) are
+documented in `.env.example`. Everything an optional add-on needs at runtime
+lives in its `.env.<option>` instead — see
+[Optional add-ons](#optional-add-ons-dockeroptions).
 
 ## Common Workflows
 
@@ -307,7 +348,7 @@ make test-ci        # backend + frontend + e2e
 Or run them directly:
 
 ```bash
-cd backend && uv run pytest          # 113 passing, 12 skipped
+cd backend && uv run pytest          # 175 passing, 16 skipped without a DB
 cd frontend && pnpm run test         # vitest run
 cd frontend && pnpm run test:e2e     # prisma migrate deploy + playwright
 ```
