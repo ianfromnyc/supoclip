@@ -158,11 +158,13 @@ services:
       # own configuration (LLAMA_ARG_*) in .env.llama.
       - LLM=${LLM:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
       - OPENAI_SERVICE_TIER=${OPENAI_SERVICE_TIER:-}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      # Deprecated aliases of OPENAI_BASE_URL/OPENAI_API_KEY for LLM=ollama:*
+      # The endpoint and key for the deprecated LLM=ollama:* prefix, which
+      # reads only this pair — OPENAI_BASE_URL never applies to it, so the
+      # default above cannot redirect an existing ollama:* deployment.
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
       - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
       - QUEUED_TASK_TIMEOUT_SECONDS=${QUEUED_TASK_TIMEOUT_SECONDS:-180}
@@ -255,11 +257,13 @@ services:
       # own configuration (LLAMA_ARG_*) in .env.llama.
       - LLM=${LLM:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
       - OPENAI_SERVICE_TIER=${OPENAI_SERVICE_TIER:-}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      # Deprecated aliases of OPENAI_BASE_URL/OPENAI_API_KEY for LLM=ollama:*
+      # The endpoint and key for the deprecated LLM=ollama:* prefix, which
+      # reads only this pair — OPENAI_BASE_URL never applies to it, so the
+      # default above cannot redirect an existing ollama:* deployment.
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
       - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
       - QUEUED_TASK_TIMEOUT_SECONDS=${QUEUED_TASK_TIMEOUT_SECONDS:-180}
