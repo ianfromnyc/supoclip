@@ -334,7 +334,15 @@ for option in vaapi whisperx tunnel llama; do
         echo -e "${YELLOW}Warning: ${scoped_env} exists but the ${option} add-on is not enabled${NC}"
         echo "Uncomment its include line at the top of docker-compose.yml (along with the"
         echo "'include:' line above it), or delete ${scoped_env} if you no longer want it:"
-        echo "  - path: docker/options/${option}.yml"
+        if [ "$option" = "llama" ]; then
+            # There is no llama.yml: five hardware variants share one .env.llama.
+            echo "  - path: docker/options/llama-<variant>.yml"
+            echo "Uncomment exactly ONE variant for your hardware: llama-cpu.yml, llama-cuda.yml,"
+            echo "llama-rocm.yml, llama-sycl.yml or llama-vulkan.yml (all five define the same"
+            echo "llama service; see docs/setup.md)."
+        else
+            echo "  - path: docker/options/${option}.yml"
+        fi
         echo ""
     fi
 done
