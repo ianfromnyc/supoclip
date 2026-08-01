@@ -1,14 +1,31 @@
 name: Tests
 
 on:
+  # `edited` is not in the default activity set (opened, synchronize,
+  # reopened), so a pull request that changed its base branch kept showing the
+  # result from the old base and never ran against the new one. The guard on
+  # each job below keeps title and body edits, which raise the same event, from
+  # starting a run.
   pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - edited
   push:
     branches:
       - main
       - master
+  # Lets a maintainer start a run by hand when a branch needs one.
+  workflow_dispatch:
 
 jobs:
   backend:
+    # Run unless this is a pull request edit that left the base branch alone.
+    if: >-
+      github.event_name != 'pull_request'
+      || github.event.action != 'edited'
+      || github.event.changes.base != null
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -52,6 +69,12 @@ jobs:
         run: cd backend && .venv/bin/pytest
 
   frontend:
+    # Same guard as `backend`. `e2e` needs both of these jobs, so a skip here
+    # skips it too and no third copy of the condition is necessary.
+    if: >-
+      github.event_name != 'pull_request'
+      || github.event.action != 'edited'
+      || github.event.changes.base != null
     runs-on: ubuntu-latest
     env:
       NEXT_PUBLIC_SELF_HOST: "true"
