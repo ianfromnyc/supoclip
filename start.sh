@@ -274,6 +274,28 @@ option_is_enabled() {
     esac
 }
 
+# The five llama variants all define the same `llama` service, so uncommenting
+# two does not run two models: Compose merges them into one service with a
+# mixture of images and device mappings, and the last include quietly wins. That
+# is unfixable from inside the compose files, so refuse to start instead of
+# reporting a cheerful "Add-on enabled" for a stack nobody can reason about.
+ACTIVE_LLAMA_INCLUDES=$(grep -cE \
+    "^[[:space:]]*-[[:space:]]*path:[[:space:]]*docker/options/llama-[a-z]+\.yml" \
+    docker-compose.yml 2>/dev/null || true)
+if [ "${ACTIVE_LLAMA_INCLUDES:-0}" -gt 1 ]; then
+    echo -e "${RED}Error: ${ACTIVE_LLAMA_INCLUDES} llama add-ons are enabled at once${NC}"
+    echo "All five define the same 'llama' service, so enabling more than one merges"
+    echo "incompatible images and device mappings into a single container."
+    echo ""
+    echo "Currently uncommented in docker-compose.yml:"
+    grep -E "^[[:space:]]*-[[:space:]]*path:[[:space:]]*docker/options/llama-[a-z]+\.yml" \
+        docker-compose.yml | grep -oE "llama-[a-z]+\.yml" | sed 's/^/  - /'
+    echo ""
+    echo "Comment out all but the one matching your hardware, then run this again."
+    echo ""
+    exit 1
+fi
+
 TUNNEL_ENABLED=0
 # Whether transcription actually runs on WhisperX, which takes both halves of
 # the add-on: the include supplies the service and the env_file wiring, and
