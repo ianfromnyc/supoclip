@@ -296,6 +296,77 @@ if [ "${ACTIVE_LLAMA_INCLUDES:-0}" -gt 1 ]; then
     exit 1
 fi
 
+# Read one key's value out of a .env-style file WITHOUT sourcing it: a scoped
+# file must never leak its values into this script's own environment, which is
+# the bug that made an earlier version of the AssemblyAI check wrong. Commented
+# lines are ignored, the last assignment wins (matching dotenv), surrounding
+# whitespace is trimmed and one layer of matching quotes is stripped.
+scoped_env_value() {
+    local file="$1" key="$2" line value
+    line=$(grep -E "^[[:space:]]*${key}[[:space:]]*=" "$file" 2>/dev/null | tail -n 1)
+    [ -n "$line" ] || return 0
+
+    value=${line#*=}
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    case "$value" in
+        \"*\") value=${value#\"}; value=${value%\"} ;;
+        \'*\') value=${value#\'}; value=${value%\'} ;;
+    esac
+    printf '%s' "$value"
+}
+
+# Print why $2 does not actually enable the $1 add-on, and return 1; print
+# nothing and return 0 when it does. Existing is not the same as configured — a
+# file with the key missing, commented out, misspelled or blank leaves the
+# service running on a default that silently undoes the add-on. One required
+# key per add-on, deliberately: this is a sanity check, not a schema.
+scoped_env_problem() {
+    local option="$1" file="$2" value
+    case "$option" in
+        vaapi)
+            value=$(scoped_env_value "$file" VIDEO_ENCODER)
+            if [ "$value" != "vaapi" ]; then
+                printf 'VIDEO_ENCODER must be "vaapi" (found: %s). Without it the GPU is mapped\ninto the containers and never used, and every clip still renders on the CPU.' \
+                    "${value:-no value}"
+                return 1
+            fi
+            ;;
+        whisperx)
+            value=$(scoped_env_value "$file" TRANSCRIPTION_PROVIDER)
+            if [ "$value" != "whisperx" ]; then
+                printf 'TRANSCRIPTION_PROVIDER must be "whisperx" (found: %s). Transcription falls\nback to AssemblyAI, which needs ASSEMBLY_AI_API_KEY.' \
+                    "${value:-no value}"
+                return 1
+            fi
+            # A blank URL is treated as broken rather than as the deliberate
+            # bare-metal in-process choice: this script only ever starts the
+            # Docker stack, and the backend image ships without the whisperx
+            # extra, so the in-process path cannot run there at all.
+            value=$(scoped_env_value "$file" WHISPERX_API_URL)
+            if [ -z "$value" ]; then
+                printf 'WHISPERX_API_URL is empty. In Docker that selects the in-process WhisperX\npath, which the backend image cannot run. Set it to http://whisperx:9000.'
+                return 1
+            fi
+            ;;
+        tunnel)
+            value=$(scoped_env_value "$file" TUNNEL_TOKEN)
+            if [ -z "$value" ]; then
+                printf 'TUNNEL_TOKEN is empty. cloudflared starts, fails to authenticate, and\nrestarts forever without ever publishing the app.'
+                return 1
+            fi
+            ;;
+        llama)
+            value=$(scoped_env_value "$file" LLAMA_ARG_MODEL)
+            if [ -z "$value" ]; then
+                printf 'LLAMA_ARG_MODEL is empty. llama-server has no model to load and exits on\nstartup, so transcript analysis has no endpoint to call.'
+                return 1
+            fi
+            ;;
+    esac
+    return 0
+}
+
 TUNNEL_ENABLED=0
 # Whether transcription actually runs on WhisperX, which takes both halves of
 # the add-on: the include supplies the service and the env_file wiring, and
@@ -308,8 +379,15 @@ for option in vaapi whisperx tunnel llama; do
     if option_is_enabled "$option"; then
         [ "$option" = "tunnel" ] && TUNNEL_ENABLED=1
         if [ -f "$scoped_env" ]; then
-            [ "$option" = "whisperx" ] && WHISPERX_ACTIVE=1
-            echo -e "${GREEN}Add-on enabled: ${option} (${scoped_env})${NC}"
+            if scoped_env_issue=$(scoped_env_problem "$option" "$scoped_env"); then
+                [ "$option" = "whisperx" ] && WHISPERX_ACTIVE=1
+                echo -e "${GREEN}Add-on enabled: ${option} (${scoped_env})${NC}"
+            else
+                echo -e "${YELLOW}Warning: the ${option} add-on is enabled but ${scoped_env} does not configure it${NC}"
+                echo "$scoped_env_issue"
+                echo "Compare your file with ${scoped_env}.example."
+                echo ""
+            fi
         else
             echo -e "${YELLOW}Warning: the ${option} add-on is enabled but ${scoped_env} is missing${NC}"
             echo "It holds that add-on's entire configuration, so without it the service starts"
