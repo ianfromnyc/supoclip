@@ -92,3 +92,44 @@ class SourceRepository:
         )
         await db.commit()
         logger.info(f"Updated source {source_id} title to: {title}")
+
+    @staticmethod
+    async def delete_source_if_unreferenced(
+        db: AsyncSession, source_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Delete a source, but only while no task points at it.
+
+        Returns the deleted row, or None when a task still references the
+        source. The NOT EXISTS guard keeps the delete safe if two tasks ever
+        share one source.
+        """
+        result = await db.execute(
+            text(
+                """
+                DELETE FROM sources
+                WHERE id = :source_id
+                  AND NOT EXISTS (
+                      SELECT 1 FROM tasks WHERE source_id = :source_id
+                  )
+                RETURNING id, url
+                """
+            ),
+            {"source_id": source_id},
+        )
+        row = result.fetchone()
+        await db.commit()
+
+        if not row:
+            return None
+
+        logger.info(f"Deleted source {source_id}")
+        return {"id": row.id, "url": getattr(row, "url", None)}
+
+    @staticmethod
+    async def is_source_url_in_use(db: AsyncSession, url: str) -> bool:
+        """Report whether a source still points at this URL."""
+        result = await db.execute(
+            text("SELECT 1 FROM sources WHERE url = :url LIMIT 1"),
+            {"url": url},
+        )
+        return result.fetchone() is not None

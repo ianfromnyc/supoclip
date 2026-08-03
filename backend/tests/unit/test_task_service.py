@@ -438,3 +438,90 @@ async def test_process_task_skips_completion_email_when_already_sent(monkeypatch
 
     send_task_completed_email.assert_not_awaited()
     service.task_repo.mark_completion_notification_sent.assert_not_awaited()
+
+
+def build_delete_service(task: dict | None) -> TaskService:
+    """Task service with every delete dependency stubbed."""
+    service = TaskService(db=AsyncMock())
+    service.task_repo.get_task_by_id = AsyncMock(return_value=task)
+    service.clip_repo.delete_clips_by_task = AsyncMock(return_value=0)
+    service.task_repo.delete_task = AsyncMock()
+    service.source_repo.delete_source_if_unreferenced = AsyncMock(return_value=None)
+    service.source_repo.is_source_url_in_use = AsyncMock(return_value=False)
+    return service
+
+
+@pytest.mark.asyncio
+async def test_delete_task_deletes_the_source_it_owned():
+    service = build_delete_service({"id": "task-1", "source_id": "source-1"})
+
+    await service.delete_task("task-1")
+
+    service.source_repo.delete_source_if_unreferenced.assert_awaited_once_with(
+        service.db, "source-1"
+    )
+
+
+@pytest.mark.asyncio
+async def test_delete_task_removes_the_uploaded_file_of_its_source(tmp_path, monkeypatch):
+    service = build_delete_service({"id": "task-1", "source_id": "source-1"})
+    service.source_repo.delete_source_if_unreferenced = AsyncMock(
+        return_value={"id": "source-1", "url": "upload://video.mp4"}
+    )
+    uploaded = tmp_path / "uploads" / "video.mp4"
+    uploaded.parent.mkdir()
+    uploaded.write_bytes(b"data")
+    monkeypatch.setattr(
+        service.video_service, "resolve_local_video_path", lambda _url: uploaded
+    )
+
+    await service.delete_task("task-1")
+
+    assert not uploaded.exists()
+
+
+@pytest.mark.asyncio
+async def test_delete_task_keeps_an_upload_another_source_still_uses(
+    tmp_path, monkeypatch
+):
+    service = build_delete_service({"id": "task-1", "source_id": "source-1"})
+    service.source_repo.delete_source_if_unreferenced = AsyncMock(
+        return_value={"id": "source-1", "url": "upload://video.mp4"}
+    )
+    service.source_repo.is_source_url_in_use = AsyncMock(return_value=True)
+    uploaded = tmp_path / "uploads" / "video.mp4"
+    uploaded.parent.mkdir()
+    uploaded.write_bytes(b"data")
+    monkeypatch.setattr(
+        service.video_service, "resolve_local_video_path", lambda _url: uploaded
+    )
+
+    await service.delete_task("task-1")
+
+    assert uploaded.exists()
+
+
+@pytest.mark.asyncio
+async def test_create_task_with_source_deletes_the_source_when_the_task_fails(
+    monkeypatch,
+):
+    service = TaskService(db=AsyncMock())
+    service.task_repo.user_exists = AsyncMock(return_value=True)
+    service.source_repo.create_source = AsyncMock(return_value="source-1")
+    service.task_repo.create_task = AsyncMock(side_effect=RuntimeError("insert failed"))
+    service.source_repo.delete_source_if_unreferenced = AsyncMock(return_value=None)
+    monkeypatch.setattr(
+        service.video_service,
+        "determine_source_type",
+        lambda _url: "video_url",
+    )
+
+    with pytest.raises(RuntimeError):
+        await service.create_task_with_source(
+            user_id="user-1",
+            url="upload://video.mp4",
+        )
+
+    service.source_repo.delete_source_if_unreferenced.assert_awaited_once_with(
+        service.db, "source-1"
+    )

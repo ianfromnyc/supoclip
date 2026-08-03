@@ -231,7 +231,9 @@ PostgreSQL 15. Schema in `init.sql`. Mixed naming conventions:
 - `GET /tasks/{id}/progress` — SSE real-time progress stream
 - `POST /tasks/{id}/cancel` — Cancel processing
 - `POST /tasks/{id}/resume` — Resume cancelled/errored task
-- `DELETE /tasks/{id}` — Delete task
+- `DELETE /tasks/{id}` — Delete task, its clips, and the source it owned (the
+  source stays if another task still points at it; an uploaded file under
+  `{TEMP_DIR}/uploads/` goes with the last source that referenced it)
 
 **Clip editing:**
 - `PATCH /tasks/{id}/clips/{clip_id}` — Trim clip

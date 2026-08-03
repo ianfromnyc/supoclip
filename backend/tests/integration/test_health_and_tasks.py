@@ -204,3 +204,42 @@ async def test_upload_video_uses_runtime_config_temp_dir(
     payload = response.json()
     saved_name = payload["video_path"].removeprefix("upload://")
     assert (tmp_path / "uploads" / saved_name).exists()
+
+
+@pytest.mark.asyncio
+async def test_delete_task_also_deletes_its_source(client, db_session, auth_headers):
+    await create_user(db_session, user_id="user-1", email="owner@example.com")
+    source = await create_source(db_session, title="Source of a deleted task")
+    task = await create_task(
+        db_session, user_id="user-1", source_id=source["id"]
+    )
+
+    response = await client.delete(f"/tasks/{task['id']}", headers=auth_headers)
+
+    assert response.status_code == 200
+    remaining = await db_session.execute(
+        text("SELECT 1 FROM sources WHERE id = :source_id"),
+        {"source_id": source["id"]},
+    )
+    await db_session.commit()
+    assert remaining.fetchone() is None
+
+
+@pytest.mark.asyncio
+async def test_delete_task_keeps_a_source_another_task_shares(
+    client, db_session, auth_headers
+):
+    await create_user(db_session, user_id="user-1", email="owner@example.com")
+    source = await create_source(db_session, title="Shared source")
+    task = await create_task(db_session, user_id="user-1", source_id=source["id"])
+    await create_task(db_session, user_id="user-1", source_id=source["id"])
+
+    response = await client.delete(f"/tasks/{task['id']}", headers=auth_headers)
+
+    assert response.status_code == 200
+    remaining = await db_session.execute(
+        text("SELECT 1 FROM sources WHERE id = :source_id"),
+        {"source_id": source["id"]},
+    )
+    await db_session.commit()
+    assert remaining.fetchone() is not None
