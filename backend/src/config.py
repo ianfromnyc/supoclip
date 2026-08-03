@@ -106,6 +106,26 @@ class Config:
             os.getenv("QUEUED_TASK_TIMEOUT_SECONDS", "180")
         )
 
+        # Fail-safe: a processing task whose worker died stops sending
+        # heartbeats. The sweep waits this long after the last database
+        # update before it declares the task lost, so a slow stage that
+        # started just before the worker died is not failed too early.
+        self.processing_task_timeout_seconds = self._get_positive_int_env(
+            "PROCESSING_TASK_TIMEOUT_SECONDS", 900
+        )
+
+        # How often the worker refreshes the heartbeat of a task it owns.
+        # The heartbeat key expires after three intervals.
+        self.task_heartbeat_interval_seconds = self._get_positive_int_env(
+            "TASK_HEARTBEAT_INTERVAL_SECONDS", 30
+        )
+
+        # How often the API sweeps for tasks no worker is working on.
+        # Set it to 0 to turn the sweep off.
+        self.task_sweep_interval_seconds = self._get_non_negative_int_env(
+            "TASK_SWEEP_INTERVAL_SECONDS", 60
+        )
+
         # How many videos the ARQ worker processes concurrently. Lower this
         # when local GPU transcription/encoding shares one card, so jobs do
         # not fight over VRAM.
@@ -219,6 +239,25 @@ class Config:
         if parsed < 1:
             logger.warning("%s=%d is below 1; clamping to 1", name, parsed)
             return 1
+        return parsed
+
+    @classmethod
+    def _get_non_negative_int_env(cls, name: str, default: int) -> int:
+        # Like _get_positive_int_env, but 0 is a legal value that means
+        # "turned off" rather than a mistake to clamp away.
+        value = cls._get_optional_env(name)
+        if value is None:
+            return default
+        try:
+            parsed = int(value)
+        except ValueError:
+            logger.warning(
+                "Invalid %s=%r; falling back to %d", name, value, default
+            )
+            return default
+        if parsed < 0:
+            logger.warning("%s=%d is below 0; clamping to 0", name, parsed)
+            return 0
         return parsed
 
     @staticmethod
