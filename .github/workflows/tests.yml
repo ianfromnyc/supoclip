@@ -71,6 +71,26 @@ jobs:
       - name: Run backend tests
         run: cd backend && .venv/bin/pytest
 
+  mcp:
+    # The MCP server has no runtime dependency on the rest of the stack, so it
+    # needs no service containers. Python 3.12 matches docker/mcp.Dockerfile.
+    # Skip when a pull request edit left the base branch alone.
+    if: >-
+      github.event_name != 'pull_request'
+      || github.event.action != 'edited'
+      || github.event.changes.base != null
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v4
+      - name: Install MCP dependencies
+        run: cd mcp && uv sync --all-groups
+      - name: Run MCP tests
+        run: cd mcp && .venv/bin/pytest
+
   frontend:
     # Same guard as `backend`. `e2e` needs both of these jobs, so a skip here
     # skips it too and no third copy of the condition is necessary.

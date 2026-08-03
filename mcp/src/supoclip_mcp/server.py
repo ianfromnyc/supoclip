@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import hashlib
+import importlib.metadata
 import json
 import os
 import re
@@ -27,7 +28,10 @@ from dataclasses import replace
 from typing import Annotated, Awaitable, Callable, Optional
 
 import httpx
-from mcp.server.fastmcp import Context, FastMCP
+
+# ``mcp`` 2.0 renamed ``FastMCP`` to ``MCPServer`` and dropped the
+# ``mcp.server.fastmcp`` package. The API is otherwise the same.
+from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.provider import AccessToken
 from mcp.server.auth.settings import AuthSettings
@@ -91,7 +95,15 @@ class SupoClipApiKeyVerifier:
         )
 
 
-def _build_mcp() -> FastMCP:
+def _package_version() -> str:
+    """Report the installed version of this package to MCP clients."""
+    try:
+        return importlib.metadata.version("supoclip-mcp")
+    except importlib.metadata.PackageNotFoundError:  # pragma: no cover - source tree
+        return "0.0.0"
+
+
+def _build_mcp() -> MCPServer:
     auth_settings = None
     token_verifier = None
     if SETTINGS.mcp_require_bearer_auth:
@@ -103,10 +115,12 @@ def _build_mcp() -> FastMCP:
         )
         token_verifier = SupoClipApiKeyVerifier(SETTINGS.api_url, SETTINGS.timeout)
 
-    return FastMCP(
+    # ``host``/``port`` are no longer constructor arguments in ``mcp`` 2.0;
+    # ``main()`` passes them to ``run()`` instead. ``version`` defaults to an
+    # empty string, so set it or clients see a blank version at initialize.
+    return MCPServer(
         "supoclip_mcp",
-        host=SETTINGS.mcp_host,
-        port=SETTINGS.mcp_port,
+        version=_package_version(),
         auth=auth_settings,
         token_verifier=token_verifier,
     )
@@ -781,9 +795,31 @@ async def supoclip_delete_task(
     return _json(data)
 
 
+def _sse_paths(mount_path: str) -> dict[str, str]:
+    """Map the ``mount_path`` setting onto the explicit SSE paths of ``mcp`` 2.0.
+
+    Version 1.x took a single ``mount_path`` and derived both endpoints from it.
+    Version 2.0 takes each endpoint. An empty or root mount path keeps the
+    defaults (``/sse`` and ``/messages/``).
+    """
+    prefix = "/" + (mount_path or "").strip("/")
+    if prefix == "/":
+        return {}
+    return {"sse_path": f"{prefix}/sse", "message_path": f"{prefix}/messages/"}
+
+
 def main() -> None:
     """Console-script entry point."""
-    mcp.run(transport=SETTINGS.mcp_transport, mount_path=SETTINGS.mcp_mount_path)
+    transport = SETTINGS.mcp_transport
+    if transport == "stdio":
+        # stdio has no network endpoint, so host/port do not apply.
+        mcp.run(transport="stdio")
+        return
+
+    options: dict[str, object] = {"host": SETTINGS.mcp_host, "port": SETTINGS.mcp_port}
+    if transport == "sse":
+        options.update(_sse_paths(SETTINGS.mcp_mount_path))
+    mcp.run(transport=transport, **options)
 
 
 if __name__ == "__main__":

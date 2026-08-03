@@ -346,22 +346,24 @@ above is a rough sketch; these constants are what the code enforces):
 
 ## Testing Guidelines
 
-The backend and frontend both have test suites, and CI runs them
+All three apps have test suites, and CI runs them
 (`.github/workflows/tests.yml`). The `Makefile` at the repo root is the easiest
 entry point because it supplies the DB/Redis/auth env vars the suites expect:
 
 ```bash
-make test           # backend pytest + frontend vitest
+make test           # backend pytest + mcp pytest + frontend vitest
 make test-backend   # uv sync --all-groups, then pytest
+make test-mcp       # uv sync --all-groups, then pytest (no DB/Redis needed)
 make test-frontend  # vitest with coverage
 make test-e2e       # Playwright against a migrated database
-make test-ci        # backend + frontend + e2e
+make test-ci        # backend + mcp + frontend + e2e
 ```
 
 Or run them directly:
 
 ```bash
 cd backend && uv run pytest          # 175 passing, 16 skipped without a DB
+cd mcp && uv run pytest              # 11 passing
 cd frontend && pnpm run test         # vitest run
 cd frontend && pnpm run test:e2e     # prisma migrate deploy + playwright
 ```
@@ -374,6 +376,11 @@ cd frontend && pnpm run test:e2e     # prisma migrate deploy + playwright
 - **Coverage gate** — `backend/pyproject.toml` sets `--cov-fail-under=65` scoped
   to `src/auth_headers.py` and `src/services/billing_service.py` only, so most
   new code is not covered by the gate. Add tests next to the module you touch.
+- **MCP** — `mcp/tests/`, pytest with `asyncio_mode = "auto"`, no fixtures or
+  services. The suite imports `supoclip_mcp.server` and inspects the registered
+  tools, so an incompatible `mcp` SDK release fails in CI instead of turning
+  into a container restart loop. Keep the tool-name list in
+  `tests/test_server_smoke.py` in step when you add or rename a tool.
 - **Frontend** — Vitest specs colocated with the code (`src/**/*.test.ts(x)`)
   plus a Playwright end-to-end spec in `frontend/e2e/`.
 

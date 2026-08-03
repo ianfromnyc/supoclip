@@ -77,6 +77,12 @@ pip install -e .
 supoclip-mcp
 ```
 
+The server is built against the `mcp` 2.x SDK, which `pyproject.toml` pins to
+that major version. Version 2.0 renamed `FastMCP` to `MCPServer` and removed
+`mcp.server.fastmcp`, so the 1.x SDK does not work. Run `uv run pytest` after
+any SDK change: the suite imports the server and lists its tools, which catches
+that kind of break.
+
 ## Hosted SSE server
 
 For clients that add a remote MCP URL, run the server over SSE and require a
