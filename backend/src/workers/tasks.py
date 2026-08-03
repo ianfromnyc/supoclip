@@ -44,9 +44,11 @@ async def process_video_task(
     Returns:
         Dict with processing results
     """
+    from ..config import get_config
     from ..database import AsyncSessionLocal
     from ..runtime_settings import load_runtime_settings_cache
     from ..services.task_service import TaskService
+    from ..workers.heartbeat import TaskHeartbeat
     from ..workers.progress import ProgressTracker
 
     set_trace_id(f"task-{task_id}")
@@ -76,23 +78,30 @@ async def process_video_task(
             ):
                 await progress.clip_ready(clip_index, total_clips, clip_data)
 
-            # Process the video
-            result = await task_service.process_task(
-                task_id=task_id,
-                url=url,
-                source_type=source_type,
-                font_family=font_family,
-                font_size=font_size,
-                font_color=font_color,
-                caption_template=caption_template,
-                processing_mode=processing_mode,
-                output_format=output_format,
-                add_subtitles=add_subtitles,
-                progress_callback=update_progress,
-                should_cancel=should_cancel,
-                clip_ready_callback=clip_ready_callback,
-                cleanup_settings=cleanup_settings,
-            )
+            # Process the video. The heartbeat proves this worker is alive,
+            # so a task left behind by a dead worker can be told apart from
+            # a slow render and rescued.
+            async with TaskHeartbeat(
+                ctx["redis"],
+                task_id,
+                interval_seconds=get_config().task_heartbeat_interval_seconds,
+            ):
+                result = await task_service.process_task(
+                    task_id=task_id,
+                    url=url,
+                    source_type=source_type,
+                    font_family=font_family,
+                    font_size=font_size,
+                    font_color=font_color,
+                    caption_template=caption_template,
+                    processing_mode=processing_mode,
+                    output_format=output_format,
+                    add_subtitles=add_subtitles,
+                    progress_callback=update_progress,
+                    should_cancel=should_cancel,
+                    clip_ready_callback=clip_ready_callback,
+                    cleanup_settings=cleanup_settings,
+                )
 
             logger.info(f"Task {task_id} completed successfully")
             return result
