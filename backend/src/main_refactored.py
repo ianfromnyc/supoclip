@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .config import Config, get_config, set_config_override
 from .database import AsyncSessionLocal, close_db, configure_database, get_db, init_db
 from .runtime_settings import load_runtime_settings_cache
+from .services.task_reaper import start_task_sweeper
 from .workers.job_queue import JobQueue
 from .api.routes import tasks
 from .api.routes.admin import router as admin_router
@@ -59,6 +60,7 @@ def create_app(
     async def lifespan(app: FastAPI):
         """Application lifespan: startup and shutdown events."""
         logger.info("🚀 Starting SupoClip API...")
+        task_sweeper = None
         try:
             await init_db()
             logger.info("✅ Database initialized")
@@ -69,9 +71,17 @@ def create_app(
             await queue_adapter.get_pool()
             logger.info("✅ Job queue initialized")
 
+            # The sweep runs in the API and not in the worker, because a dead
+            # worker is exactly the failure it has to rescue tasks from.
+            task_sweeper = start_task_sweeper(runtime_config)
+            app.state.task_sweeper = task_sweeper
+            logger.info("✅ Task sweep started")
+
             yield
         finally:
             logger.info("🛑 Shutting down SupoClip API...")
+            if task_sweeper is not None:
+                task_sweeper.cancel()
             await close_db()
             await queue_adapter.close_pool()
             logger.info("✅ Cleanup complete")

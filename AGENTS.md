@@ -180,6 +180,30 @@ utils/               → Thread pool helpers for blocking operations (async_help
    - Caption templates with animation styles
 5. **Storage** → Clips to `{TEMP_DIR}/clips/`, metadata to PostgreSQL
 
+### Rescuing stuck tasks
+
+A task is active while it is `queued` or `processing`, and either state can be
+left behind — nothing picks the task up, or the worker holding it dies. The
+API sweeps for both every `TASK_SWEEP_INTERVAL_SECONDS`
+(`src/services/task_reaper.py`, started from the app lifespan) and moves an
+abandoned task to `error`, which the user can resume from. The sweep runs in
+the API and not in the worker, because a dead worker is the failure it exists
+to rescue.
+
+- **queued** — failed once the row is older than `QUEUED_TASK_TIMEOUT_SECONDS`.
+- **processing** — failed once the row is older than
+  `PROCESSING_TASK_TIMEOUT_SECONDS` *and* the task has no heartbeat. The worker
+  refreshes `task_heartbeat:{task_id}` every `TASK_HEARTBEAT_INTERVAL_SECONDS`
+  (`src/workers/heartbeat.py`), and the key expires after three intervals, so a
+  long render that writes progress rarely still reads as alive. An unreachable
+  Redis fails nothing: without heartbeats a live task is indistinguishable from
+  a dead one.
+
+Every rescue is guarded by the status it expects to move from
+(`TaskRepository.fail_task_if_status`), so a sweep can never overwrite a worker
+that finished a moment earlier, and it publishes the failure to
+`progress:{task_id}` so open SSE streams close.
+
 ### Frontend Architecture
 
 - **Next.js 15** with App Router, React 19, TailwindCSS v4
@@ -210,9 +234,11 @@ PostgreSQL 15. Schema in `init.sql`. Mixed naming conventions:
 | `src/api/routes/media.py` | Fonts, transitions, uploads, templates |
 | `src/api/routes/admin.py` | Admin runtime-settings API (see `runtime_settings.py`) |
 | `src/services/task_service.py` | Task orchestration, clip editing logic (~980 lines) |
+| `src/services/task_reaper.py` | Sweep that fails abandoned tasks (see [Rescuing stuck tasks](#rescuing-stuck-tasks)) |
 | `src/services/video_service.py` | Video download, transcription, AI analysis, clip generation |
 | `src/workers/tasks.py` | ARQ worker task definitions (`max_jobs = config.worker_max_jobs`, i.e. `WORKER_MAX_JOBS`, default 4 concurrent tasks) |
 | `src/workers/job_queue.py` | Job queue management |
+| `src/workers/heartbeat.py` | Redis heartbeat a worker holds while it processes a task |
 | `src/workers/progress.py` | Real-time progress via Redis |
 | `src/ai.py` | Pydantic AI agents, system prompt, segment validation |
 | `src/video_utils.py` | ffmpeg command builders, cropping, subtitles (~3740 lines) |
@@ -285,7 +311,10 @@ OLLAMA_API_KEY=...                   # Deprecated; ollama:* only, ignores OPENAI
 PEXELS_API_KEY=...                   # B-roll stock footage
 REDIS_HOST=localhost                 # Default: localhost
 REDIS_PORT=6379                      # Default: 6379
-QUEUED_TASK_TIMEOUT_SECONDS=180      # Fail-safe for stuck tasks
+QUEUED_TASK_TIMEOUT_SECONDS=180      # Fail-safe for tasks nothing picked up
+PROCESSING_TASK_TIMEOUT_SECONDS=900  # Fail-safe for tasks whose worker died
+TASK_HEARTBEAT_INTERVAL_SECONDS=30   # Worker heartbeat refresh (expires after 3)
+TASK_SWEEP_INTERVAL_SECONDS=60       # How often the API sweeps; 0 turns it off
 WORKER_MAX_JOBS=4                    # ARQ worker concurrency (default 4)
 TEMP_DIR=/tmp                        # Temp file storage
 DATABASE_URL=postgresql+asyncpg://...
