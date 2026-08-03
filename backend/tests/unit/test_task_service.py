@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -525,3 +525,27 @@ async def test_create_task_with_source_deletes_the_source_when_the_task_fails(
     service.source_repo.delete_source_if_unreferenced.assert_awaited_once_with(
         service.db, "source-1"
     )
+
+
+@pytest.mark.asyncio
+async def test_reading_a_stale_queued_task_does_not_change_its_status():
+    # Rescuing a task belongs to the reaper sweep, not to a read: a task
+    # nobody opens must be rescued too, and a GET must not mutate state.
+    config = Config()
+    config.queued_task_timeout_seconds = 180
+    service = TaskService(db=AsyncMock(), config=config)
+    stale_queued_task = {
+        "id": "task-1",
+        "status": "queued",
+        "created_at": datetime.now(timezone.utc) - timedelta(hours=2),
+        "updated_at": datetime.now(timezone.utc) - timedelta(hours=2),
+    }
+    service.task_repo.get_task_by_id = AsyncMock(return_value=stale_queued_task)
+    service.task_repo.update_task_status = AsyncMock()
+    service.clip_repo.get_clips_by_task = AsyncMock(return_value=[])
+    service.cache_repo.get_cache = AsyncMock(return_value=None)
+
+    task = await service.get_task_with_clips("task-1")
+
+    assert task["status"] == "queued"
+    service.task_repo.update_task_status.assert_not_awaited()

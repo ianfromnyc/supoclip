@@ -65,25 +65,6 @@ class TaskService:
         )
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
-    def _is_stale_queued_task(self, task: Dict[str, Any]) -> bool:
-        """Detect queued tasks that have likely stalled due to worker issues."""
-        if task.get("status") != "queued":
-            return False
-
-        created_at = task.get("created_at")
-        updated_at = task.get("updated_at") or created_at
-
-        if not created_at or not updated_at:
-            return False
-
-        now = (
-            datetime.now(updated_at.tzinfo)
-            if getattr(updated_at, "tzinfo", None)
-            else datetime.utcnow()
-        )
-        age_seconds = (now - updated_at).total_seconds()
-        return age_seconds >= self.config.queued_task_timeout_seconds
-
     async def create_task_with_source(
         self,
         user_id: str,
@@ -471,25 +452,6 @@ class TaskService:
 
         if not task:
             return None
-
-        if self._is_stale_queued_task(task):
-            timeout_seconds = self.config.queued_task_timeout_seconds
-            logger.warning(
-                f"Task {task_id} stuck in queued status for over {timeout_seconds}s; marking as error"
-            )
-            await self.task_repo.update_task_status(
-                self.db,
-                task_id,
-                "error",
-                progress=0,
-                progress_message=(
-                    "Task timed out while waiting in queue. "
-                    "Ensure the worker service is running and healthy (docker logs supoclip-worker)."
-                ),
-            )
-            task = await self.task_repo.get_task_by_id(self.db, task_id)
-            if not task:
-                return None
 
         # Get clips
         clips = await self.clip_repo.get_clips_by_task(self.db, task_id)
