@@ -322,6 +322,70 @@ class TaskRepository:
         )
 
     @staticmethod
+    async def get_active_tasks(db: AsyncSession) -> List[Dict[str, Any]]:
+        """List queued and processing tasks with the age of their last update.
+
+        The age is measured by the database clock so that clock drift on an
+        application server cannot make a healthy task look abandoned.
+        """
+        result = await db.execute(
+            text("""
+                SELECT
+                    id,
+                    status,
+                    EXTRACT(
+                        EPOCH FROM (NOW() - COALESCE(updated_at, created_at))
+                    ) AS age_seconds
+                FROM tasks
+                WHERE status IN ('queued', 'processing')
+            """)
+        )
+
+        return [
+            {
+                "id": row.id,
+                "status": row.status,
+                "age_seconds": float(row.age_seconds or 0),
+            }
+            for row in result.fetchall()
+        ]
+
+    @staticmethod
+    async def fail_task_if_status(
+        db: AsyncSession,
+        task_id: str,
+        expected_status: str,
+        message: str,
+    ) -> bool:
+        """Move a task to error only while it still holds the expected status.
+
+        Returns True when the task was moved. A task that changed status in
+        the meantime is left alone, so a sweep can never overwrite the result
+        of a worker that finished a moment earlier.
+        """
+        result = await db.execute(
+            text("""
+                UPDATE tasks
+                SET status = 'error',
+                    progress = 0,
+                    progress_message = :message,
+                    updated_at = NOW()
+                WHERE id = :task_id AND status = :expected_status
+            """),
+            {
+                "task_id": task_id,
+                "expected_status": expected_status,
+                "message": message,
+            },
+        )
+        await db.commit()
+
+        failed = bool(result.rowcount)
+        if failed:
+            logger.warning("Failed stale %s task %s: %s", expected_status, task_id, message)
+        return failed
+
+    @staticmethod
     async def update_task_clips(
         db: AsyncSession, task_id: str, clip_ids: List[str]
     ) -> None:
