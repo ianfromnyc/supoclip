@@ -17,7 +17,7 @@ from ..repositories.task_repository import TaskRepository
 from ..repositories.source_repository import SourceRepository
 from ..repositories.clip_repository import ClipRepository
 from ..repositories.cache_repository import CacheRepository
-from .video_service import VideoService
+from .video_service import UPLOAD_URL_PREFIX, VideoService
 from .task_completion_email_service import (
     TaskCompletionEmailService,
     TaskCompletionRecipient,
@@ -119,19 +119,25 @@ class TaskService:
             self.db, source_type=source_type, title=title, url=url
         )
 
-        # Create task
-        task_id = await self.task_repo.create_task(
-            self.db,
-            user_id=user_id,
-            source_id=source_id,
-            status="queued",  # Changed from "processing" to "queued"
-            font_family=font_family,
-            font_size=font_size,
-            font_color=font_color,
-            caption_template=caption_template,
-            include_broll=include_broll,
-            processing_mode=processing_mode,
-        )
+        # Create task. The source is already committed, so a failure here must
+        # take it back out again or it stays behind with nothing pointing at it.
+        try:
+            task_id = await self.task_repo.create_task(
+                self.db,
+                user_id=user_id,
+                source_id=source_id,
+                status="queued",  # Changed from "processing" to "queued"
+                font_family=font_family,
+                font_size=font_size,
+                font_color=font_color,
+                caption_template=caption_template,
+                include_broll=include_broll,
+                processing_mode=processing_mode,
+            )
+        except Exception:
+            await self.db.rollback()
+            await self.source_repo.delete_source_if_unreferenced(self.db, source_id)
+            raise
 
         logger.info(f"Created task {task_id} for user {user_id}")
         return task_id
@@ -503,14 +509,44 @@ class TaskService:
         return await self.task_repo.get_user_tasks(self.db, user_id, limit)
 
     async def delete_task(self, task_id: str) -> None:
-        """Delete a task and all its associated clips."""
+        """Delete a task with its clips, and the source the task owned."""
+        # Read the source before the task goes, or the link is lost
+        task = await self.task_repo.get_task_by_id(self.db, task_id)
+        source_id = task.get("source_id") if task else None
+
         # Delete all clips for this task
         await self.clip_repo.delete_clips_by_task(self.db, task_id)
 
         # Delete the task
         await self.task_repo.delete_task(self.db, task_id)
 
+        if source_id:
+            await self._delete_source_with_media(source_id)
+
         logger.info(f"Deleted task {task_id} and all associated clips")
+
+    async def _delete_source_with_media(self, source_id: str) -> None:
+        """Delete a source no task uses any more, plus its uploaded file."""
+        deleted = await self.source_repo.delete_source_if_unreferenced(
+            self.db, source_id
+        )
+        if not deleted:
+            return
+
+        url = deleted.get("url") or ""
+        if not url.startswith(UPLOAD_URL_PREFIX):
+            return
+
+        # Another source can point at the same upload; the last one deletes it
+        if await self.source_repo.is_source_url_in_use(self.db, url):
+            return
+
+        try:
+            self.video_service.resolve_local_video_path(url).unlink(missing_ok=True)
+        except (OSError, ValueError) as exc:
+            logger.warning(
+                f"Could not delete the uploaded file of source {source_id}: {exc}"
+            )
 
     async def update_task_settings(
         self,
