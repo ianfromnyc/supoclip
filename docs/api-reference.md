@@ -146,8 +146,6 @@ Source file:
 
 ### Other media assets
 
-- `GET /transitions`
-  - List available transitions
 - `GET /caption-templates`
   - List available subtitle template definitions
 - `GET /broll/status`

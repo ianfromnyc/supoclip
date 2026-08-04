@@ -410,7 +410,6 @@ With Docker, SupoClip stores persistent data in named volumes:
 The backend also mounts these local directories:
 
 - `backend/fonts`
-- `backend/transitions`
 
 ## Hosted Mode Versus Self-Hosted Mode
 

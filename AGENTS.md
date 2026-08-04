@@ -175,7 +175,6 @@ utils/               → Thread pool helpers for blocking operations (async_help
    - Face-centered cropping: MediaPipe → OpenCV DNN → Haar cascade (fallback chain)
    - Word-synced subtitles from AssemblyAI
    - Custom fonts (TTF files in `backend/fonts/`)
-   - Optional transition effects (`backend/transitions/`)
    - Optional B-roll overlays (Pexels API)
    - Caption templates with animation styles
 5. **Storage** → Clips to `{TEMP_DIR}/clips/`, metadata to PostgreSQL
@@ -231,7 +230,7 @@ PostgreSQL 15. Schema in `init.sql`. Mixed naming conventions:
 | `src/main_refactored.py` | Active FastAPI entry point (~230 lines) |
 | `src/main.py` | Legacy monolithic entry point (do not use for new work) |
 | `src/api/routes/tasks.py` | Task CRUD, SSE progress, clip editing endpoints (~1090 lines) |
-| `src/api/routes/media.py` | Fonts, transitions, uploads, templates |
+| `src/api/routes/media.py` | Fonts, uploads, templates |
 | `src/api/routes/admin.py` | Admin runtime-settings API (see `runtime_settings.py`) |
 | `src/services/task_service.py` | Task orchestration, clip editing logic (~980 lines) |
 | `src/services/task_reaper.py` | Sweep that fails abandoned tasks (see [Rescuing stuck tasks](#rescuing-stuck-tasks)) |
@@ -269,7 +268,7 @@ PostgreSQL 15. Schema in `init.sql`. Mixed naming conventions:
 - `GET /tasks/{id}/clips/{clip_id}/export?preset=tiktok` — Export with platform preset
 
 **Media:**
-- `GET /fonts`, `GET /transitions`, `GET /caption-templates`, `GET /broll/status`
+- `GET /fonts`, `GET /caption-templates`, `GET /broll/status`
 - `POST /upload` — Upload video file
 - `GET /clips/{filename}` — Serve generated clips
 
@@ -329,9 +328,9 @@ lives in its `.env.<option>` instead — see
 
 ## Common Workflows
 
-### Adding fonts/transitions
+### Adding fonts
 
-Drop `.ttf` files into `backend/fonts/` or `.mp4` files into `backend/transitions/`. They auto-appear via their respective `GET` endpoints.
+Drop `.ttf` files into `backend/fonts/`. They auto-appear through `GET /fonts`.
 
 ### Modifying AI clip selection
 
@@ -365,7 +364,7 @@ above is a rough sketch; these constants are what the code enforces):
   Self-hosters may instead use `SUPOCLIP_USER_ID` (+ `SUPOCLIP_AUTH_SECRET` when
   signing is enforced).
 - **Tools:** create/list/get/wait/cancel/resume/delete tasks, list/download/
-  export clips, and public discovery (templates, transitions, fonts, B-roll).
+  export clips, and public discovery (templates, fonts, B-roll).
 - Run with `cd mcp && uv run supoclip-mcp`. Details in `mcp/README.md`.
 
 ## Coding Style & Naming Conventions

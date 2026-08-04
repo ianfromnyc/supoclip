@@ -59,7 +59,7 @@ Responsibilities:
 - Accept and validate requests
 - Create and update tasks
 - Manage clip editing actions
-- Serve fonts, transitions, upload endpoints, and clip files
+- Serve fonts, upload endpoints, and clip files
 - Expose progress streams
 - Handle feedback, billing support, and admin flows
 
@@ -303,7 +303,6 @@ The rough pipeline is:
    - Video trimming and formatting
    - Subtitle placement and styling
    - Face-aware cropping
-   - Optional transitions
    - Optional B-roll
 5. Persistence
    - Clip metadata in PostgreSQL
@@ -396,7 +395,7 @@ In Docker, the system uses named volumes for:
 - PostgreSQL data
 - YouTube auth state
 
-Fonts and transitions are file-based assets mounted from the repository.
+Fonts are file-based assets mounted from the repository.
 
 ## Operational Characteristics
 
