@@ -3,7 +3,6 @@ from pathlib import Path
 import pytest
 
 from src.services.video_service import VideoService
-from src.clip_source_map import load_clip_source_ranges, save_clip_source_ranges
 from src.video_utils import (
     build_clip_keep_ranges,
     build_keep_ranges_from_source_ranges,
@@ -209,26 +208,6 @@ def test_create_clips_from_segments_uses_source_ranges_when_recomputing_cleanup(
     assert captured["source_ranges"] == [(10.0, 11.0), (13.0, 15.0)]
     assert captured["cleanup_settings"] == {"cut_long_pauses": True}
     assert clips[0]["duration"] == pytest.approx(2.6)
-
-
-@pytest.mark.asyncio
-async def test_apply_single_transition_copies_clip_source_map(monkeypatch, tmp_path):
-    current_clip_path = tmp_path / "clip.mp4"
-    current_clip_path.write_bytes(b"clip")
-    save_clip_source_ranges(current_clip_path, [(10.0, 11.0), (12.0, 14.0)])
-
-    clip_info = await VideoService.apply_single_transition(
-        prev_clip_path=tmp_path / "prev.mp4",
-        current_clip_info={
-            "filename": "clip.mp4",
-            "path": str(current_clip_path),
-        },
-        clip_index=1,
-        output_dir=tmp_path,
-    )
-
-    transitioned_path = Path(clip_info["path"])
-    assert load_clip_source_ranges(transitioned_path) == [(10.0, 11.0), (12.0, 14.0)]
 
 
 def test_create_optimized_clip_fast_path_uses_keep_range_start(monkeypatch, tmp_path):

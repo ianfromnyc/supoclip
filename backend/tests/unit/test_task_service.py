@@ -72,9 +72,6 @@ def build_task_service() -> TaskService:
     service.task_repo.update_task_clips = AsyncMock()
     service.clip_repo.create_clip = AsyncMock(return_value="clip-1")
     service.video_service.create_single_clip = AsyncMock(return_value=build_clip_result())
-    service.video_service.apply_single_transition = AsyncMock(
-        side_effect=lambda _prev_clip_path, clip_info, _index, _clips_output_dir: clip_info
-    )
     service.video_service.process_video_complete = AsyncMock(
         return_value={
             "clips": [build_clip_result()],
@@ -341,7 +338,6 @@ async def test_process_task_keeps_generated_clips_standalone():
     )
 
     assert result["clips_count"] == 2
-    service.video_service.apply_single_transition.assert_not_awaited()
     saved_paths = [
         call.kwargs["file_path"]
         for call in service.clip_repo.create_clip.await_args_list

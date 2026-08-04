@@ -171,67 +171,6 @@ def test_prepare_audio_for_transcription_removes_temp_when_ffmpeg_raises(tmp_pat
     assert list(tmp_path.glob("*.mp3")) == []
 
 
-def test_apply_transition_effect_builds_ffmpeg_xfade_command(tmp_path):
-    commands = []
-
-    class Result:
-        returncode = 0
-        stdout = ""
-        stderr = ""
-
-    def fake_run(command, timeout=900):
-        commands.append(command)
-        return Result()
-
-    with (
-        patch("src.video_utils.ffprobe_duration", side_effect=[4.0, 4.0]),
-        patch("src.video_utils.ffprobe_video_size", return_value=(1080, 1920)),
-        patch("src.video_utils.run_ffmpeg_command", side_effect=fake_run),
-    ):
-        success = video_utils.apply_transition_effect(
-            tmp_path / "clip1.mp4",
-            tmp_path / "clip2.mp4",
-            tmp_path / "transition.mp4",
-            tmp_path / "out.mp4",
-        )
-
-    assert success is True
-    command = commands[0]
-    filter_graph = command[command.index("-filter_complex") + 1]
-    assert "xfade=transition=fade:duration=1.500:offset=0" in filter_graph
-    assert "trim=start=2.500:end=4.000" in filter_graph
-    assert "trim=start=1.500:end=4.000" in filter_graph
-    assert "-map" in command
-
-
-def test_create_clips_with_transitions_keeps_standalone_clip_exports(tmp_path):
-    clips_info = [{"filename": "clip-1.mp4", "path": str(tmp_path / "clip-1.mp4")}]
-
-    with (
-        patch(
-            "src.video_utils.create_clips_from_segments", return_value=clips_info
-        ) as mock_create,
-        patch(
-            "src.video_utils.get_available_transitions",
-            side_effect=AssertionError("should not load transitions"),
-        ),
-    ):
-        result = video_utils.create_clips_with_transitions(
-            tmp_path / "source.mp4",
-            [{"start_time": "00:00", "end_time": "00:10", "text": "hook"}],
-            tmp_path,
-            font_family="TikTokSans-Regular",
-            font_size=24,
-            font_color="#FFFFFF",
-            caption_template="default",
-            output_format="vertical",
-            add_subtitles=True,
-        )
-
-    assert result == clips_info
-    mock_create.assert_called_once()
-
-
 def test_build_assemblyai_ass_subtitles_uses_cached_word_timings(tmp_path):
     video_path = tmp_path / "source.mp4"
     cache_path = video_path.with_suffix(".transcript_cache.json")
