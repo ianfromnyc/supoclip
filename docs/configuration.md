@@ -141,10 +141,9 @@ Current code and defaults emphasize a `fast` mode. If you expose additional mode
 |---|---|---|
 | `PEXELS_API_KEY` | unset | Enables AI B-roll sourcing from Pexels |
 
-Fonts and transitions are configured by mounted files rather than environment variables:
+Fonts are configured by mounted files rather than environment variables:
 
 - Add `.ttf` or `.otf` files to `backend/fonts/`
-- Add transition `.mp4` files to `backend/transitions/`
 
 ## Redis and Database Settings
 

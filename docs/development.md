@@ -191,14 +191,13 @@ Use this area when changing:
 - cancellation and resume logic
 - progress reporting
 
-### Modify uploads, fonts, transitions, or media listings
+### Modify uploads, fonts, or media listings
 
 Primary files:
 
 - `backend/src/api/routes/media.py`
 - `backend/src/font_registry.py`
 - `backend/fonts/`
-- `backend/transitions/`
 
 ### Modify auth or user roles
 

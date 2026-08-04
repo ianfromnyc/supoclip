@@ -15,7 +15,6 @@ By default it talks to the **official hosted SupoClip API** at
 |------|:----:|-------------|
 | `supoclip_health` | – | API status + how this server is configured |
 | `supoclip_list_caption_templates` | – | Available caption styles (default, hormozi, mrbeast, …) |
-| `supoclip_list_transitions` | – | Available transition effects |
 | `supoclip_broll_status` | – | Whether B-roll overlays are configured |
 | `supoclip_list_fonts` | ✓ | Subtitle fonts available to your account |
 | `supoclip_billing_summary` | ✓ | Plan, usage and remaining quota |

@@ -251,27 +251,6 @@ async def supoclip_list_caption_templates() -> str:
 
 
 @mcp.tool(
-    name="supoclip_list_transitions",
-    annotations={
-        "title": "List Transition Effects",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": True,
-    },
-)
-@tool_errors
-async def supoclip_list_transitions() -> str:
-    """List available video transition effects. No auth required.
-
-    Returns:
-        str: JSON ``{"transitions": [{"name", "display_name", "file_path"}]}``.
-    """
-    data = await _client().request("GET", "/transitions", authenticated=False)
-    return _json(data)
-
-
-@mcp.tool(
     name="supoclip_broll_status",
     annotations={
         "title": "B-roll Availability",

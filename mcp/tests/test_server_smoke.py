@@ -32,7 +32,6 @@ async def test_expected_tools_are_registered() -> None:
     assert {
         "supoclip_health",
         "supoclip_list_caption_templates",
-        "supoclip_list_transitions",
         "supoclip_list_fonts",
         "supoclip_broll_status",
         "supoclip_create_clip_task",

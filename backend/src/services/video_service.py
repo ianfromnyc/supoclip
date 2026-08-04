@@ -18,7 +18,7 @@ from ..youtube_utils import (
 )
 from ..video_utils import (
     get_video_transcript,
-    create_clips_with_transitions,
+    create_clips_from_segments,
     create_optimized_clip,
     parse_timestamp_to_seconds,
     build_clip_keep_ranges,
@@ -184,7 +184,7 @@ class VideoService:
         clips_output_dir.mkdir(parents=True, exist_ok=True)
 
         clips_info = await run_in_thread(
-            create_clips_with_transitions,
+            create_clips_from_segments,
             video_path,
             segments,
             clips_output_dir,
@@ -307,23 +307,6 @@ class VideoService:
         except Exception as e:
             logger.error(f"Error creating clip {clip_index + 1}: {e}")
             return None
-
-    @staticmethod
-    async def apply_single_transition(
-        prev_clip_path: Path,
-        current_clip_info: Dict[str, Any],
-        clip_index: int,
-        output_dir: Path,
-    ) -> Dict[str, Any]:
-        """Return the original clip info.
-
-        Standalone exports intentionally do not depend on adjacent clips.
-        """
-        logger.info(
-            "Skipping inter-clip transition for clip %s to preserve standalone exports",
-            clip_index + 1,
-        )
-        return current_clip_info
 
     @staticmethod
     def determine_source_type(url: str) -> str:

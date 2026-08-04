@@ -28,7 +28,7 @@ The backend has been completely refactored from a monolithic structure to a prop
 backend/src/
 ├── api/routes/
 │   ├── tasks.py           # Task endpoints + SSE
-│   └── media.py           # Fonts, transitions, uploads
+│   └── media.py           # Fonts, uploads
 ├── services/
 │   ├── video_service.py   # Video processing logic
 │   └── task_service.py    # Task orchestration
@@ -324,5 +324,4 @@ ALTER TABLE tasks ADD COLUMN IF NOT EXISTS progress_message TEXT;
 - `GET /tasks/{task_id}` - Still works
 - `GET /tasks/{task_id}/clips` - Still works
 - `GET /fonts` - Still works
-- `GET /transitions` - Still works
 - `POST /upload` - Still works

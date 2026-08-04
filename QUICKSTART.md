@@ -304,7 +304,6 @@ For production use:
 - Check out the API docs at http://localhost:8000/docs
 - View example clips in the frontend
 - Customize fonts by adding TTF files to `backend/fonts/`
-- Add transition effects by adding MP4 files to `backend/transitions/`
 
 ## Getting Help
 
