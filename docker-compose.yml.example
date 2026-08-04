@@ -119,7 +119,6 @@ services:
       - uploads:/app/uploads
       - clips:/app/clips
       - ./backend/fonts:/app/fonts
-      - ./backend/transitions:/app/transitions
     # No env_file here on purpose. Each add-on's overlay attaches its own
     # .env.<option> to this service, so commenting the include out really does
     # disable the add-on. Attaching them here instead would read the file
@@ -215,7 +214,6 @@ services:
       - uploads:/app/uploads
       - clips:/app/clips
       - ./backend/fonts:/app/fonts
-      - ./backend/transitions:/app/transitions
     # No env_file here on purpose. Each add-on's overlay attaches its own
     # .env.<option> to this service, so commenting the include out really does
     # disable the add-on. Attaching them here instead would read the file
